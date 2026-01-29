@@ -1,7 +1,7 @@
 # Kimi GUI
 
 Desktop UI for Kimi Code CLI built with Rust + Tauri 2 and a static HTML/CSS/JS
-frontend (no Vite, no framework). The GUI embeds the real `kimi` CLI inside a
+frontend. The GUI embeds the real `kimi` CLI inside a
 PTY-powered terminal to keep feature parity with the CLI.
 
 ## Prerequisites
