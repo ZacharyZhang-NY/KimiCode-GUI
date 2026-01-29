@@ -1,0 +1,454 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Kimi</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <!-- Marked for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+    <!-- Highlight.js for code highlighting -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/core.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/javascript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/python.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/rust.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/typescript.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/lib/languages/bash.min.js"></script>
+  </head>
+  <body>
+    <!-- Dot Grid Background -->
+    <div class="dot-grid"></div>
+
+    <div class="app">
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <!-- New Session -->
+        <button class="new-session" id="btn-new-session">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>New session</span>
+        </button>
+
+        <!-- Sessions -->
+        <div class="sessions-header">
+          <span>Sessions</span>
+          <button class="icon-btn" id="btn-edit-sessions" title="Edit sessions">
+            <svg viewBox="0 0 24 24" width="14" height="14">
+              <path d="M12 20h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="sessions-list" id="session-list">
+          <!-- Sessions will be populated here -->
+        </div>
+
+        <!-- User / Login -->
+        <div class="user-bar" id="user-bar">
+          <div class="user-info">
+            <div class="user-status" id="user-status">Click to login</div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="main" id="main">
+        <!-- Empty State -->
+        <div class="empty-state" id="empty-state">
+          <div class="preview-badge">Preview</div>
+          
+          <div class="logo">
+            <div class="logo-pill">
+              <svg class="logo-kimi" viewBox="0 0 55 24" xmlns="http://www.w3.org/2000/svg">
+                <title>Kimi</title>
+                <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M13.998 2h4.277L15.76 7.645a3.9 3.9 0 01-2.297 2.104h2.1v.01a3.834 3.834 0 013.548 3.83V22h-3.825V11.852a2.99 2.99 0 01-2.713 1.736H5.825V22H2V2.035h3.825v7.714h4.787L13.998 2zM25.93 2h-3.815v20h3.815V2zm23.468 0h3.815v20h-3.815V2zM28.936 22V2h3.855l4.888 7.828L42.557 2h3.836v20h-3.815V9.183l-4.896 7.855-4.93-7.898V22h-3.816z"></path>
+              </svg>
+            </div>
+            <span class="logo-code">Code</span>
+          </div>
+
+          <!-- Controls Row -->
+          <div class="controls-row">
+            <button class="select-btn" id="btn-folder">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <path d="M4 7h6l2 2h8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <span id="folder-label">Select folder</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" class="chevron">
+                <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="select-btn" id="btn-model">
+              <svg viewBox="0 0 24 24" width="16" height="16">
+                <rect x="3" y="4" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                <path d="M8 20h8M12 16v4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              <span id="model-label">Select model</span>
+              <svg viewBox="0 0 24 24" width="14" height="14" class="chevron">
+                <path d="M6 9l6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+
+          <!-- Input Box -->
+          <div class="input-box">
+            <textarea
+              id="prompt-input"
+              placeholder="Find a small todo in the codebase and do it"
+              rows="3"
+            ></textarea>
+              <div class="input-actions">
+              <div class="input-left">
+                <button class="tool-btn" id="btn-config" title="Settings">
+                  <svg viewBox="0 0 24 24" width="18" height="18">
+                    <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="input-right">
+                <label class="yolo-toggle" id="yolo-toggle-main">
+                  <span class="yolo-label">YOLO</span>
+                  <input type="checkbox" id="yolo-switch-main" aria-label="YOLO mode">
+                  <span class="yolo-slider"></span>
+                </label>
+                <button class="send-btn" id="btn-send" title="Send (Cmd+Enter)">
+                  <svg viewBox="0 0 24 24" width="18" height="18">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Actions -->
+          <div class="quick-actions">
+            <button class="action-card" data-prompt="Create or update my AGENTS.md file">
+              <span>Create or update my <code>AGENTS.md</code> file</span>
+            </button>
+            <button class="action-card" data-prompt="Search for a TODO comment and fix it">
+              <span>Search for a <code>TODO</code> comment and fix it</span>
+            </button>
+            <button class="action-card" data-prompt="Recommend areas to improve tests">
+              <span>Recommend areas to improve our <code>tests</code></span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Loading Indicator -->
+        <div class="loading-indicator" id="loading-indicator" style="display: none;">
+          <div class="spinner"></div>
+          <span>Thinking...</span>
+        </div>
+
+        <!-- Chat View (hidden initially) -->
+        <div class="chat-view hidden" id="chat-view">
+          <div class="chat-header">
+            <div class="chat-title" id="chat-title">New Session</div>
+            <div class="chat-actions">
+              <button class="icon-btn" id="btn-close-chat" title="Close session">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          
+          <div class="messages" id="messages">
+            <!-- Messages will be rendered here -->
+          </div>
+          
+          <div class="chat-input-area">
+            <div class="input-box">
+              <textarea
+                id="chat-input"
+                placeholder="Reply..."
+                rows="2"
+              ></textarea>
+              <div class="input-actions">
+                <div class="input-left">
+                  <button class="tool-btn" id="btn-config-chat" title="Settings">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                      <circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+                <div class="input-right">
+                  <label class="yolo-toggle" id="yolo-toggle-chat">
+                    <span class="yolo-label">YOLO</span>
+                    <input type="checkbox" id="yolo-switch-chat" aria-label="YOLO mode">
+                    <span class="yolo-slider"></span>
+                  </label>
+                  <button class="send-btn" id="btn-chat-send" title="Send">
+                    <svg viewBox="0 0 24 24" width="18" height="18">
+                      <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Settings Drawer -->
+    <div class="drawer-backdrop" id="drawer-backdrop">
+      <div class="drawer">
+        <div class="drawer-header">
+          <h2>Settings</h2>
+          <button class="icon-btn" id="btn-close-settings">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="drawer-tabs">
+          <button class="drawer-tab active" data-tab="general">General</button>
+          <button class="drawer-tab" data-tab="models">Models</button>
+          <button class="drawer-tab" data-tab="skills">Skills</button>
+          <button class="drawer-tab" data-tab="mcp">MCP</button>
+          <button class="drawer-tab" data-tab="config">Config</button>
+        </div>
+        <div class="drawer-content">
+          <!-- General -->
+          <div class="tab-content active" data-tab="general">
+            <div class="setting-group">
+              <label>API Key <span class="required">*</span></label>
+              <input type="password" id="setting-api-key" placeholder="sk-..." />
+              <span class="setting-hint">Your Moonshot API key for Kimi</span>
+            </div>
+            <div class="setting-group">
+              <label>API Base URL</label>
+              <input type="text" id="setting-api-base" placeholder="https://api.moonshot.cn/v1" />
+              <span class="setting-hint">Optional: Custom API endpoint</span>
+            </div>
+            <div class="setting-group">
+              <label>Working Directory</label>
+              <input type="text" id="setting-workdir" placeholder="/path/to/project" />
+            </div>
+            <div class="setting-group">
+              <label>Config File</label>
+              <input type="text" id="setting-config" placeholder="~/.kimi/config.toml" />
+            </div>
+          <div class="setting-group">
+              <label>MCP Config</label>
+              <input type="text" id="setting-mcp" placeholder="~/.kimi/mcp.json" />
+            </div>
+            <div class="setting-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="setting-yolo" />
+                <span>YOLO Mode (Skip Tool Confirmation)</span>
+              </label>
+              <span class="setting-hint">When enabled, high-risk tools will not show confirmation dialogs.</span>
+            </div>
+            <button class="btn-primary" id="btn-save-settings">Save Settings</button>
+          </div>
+          <!-- Models -->
+          <div class="tab-content" data-tab="models">
+            <div class="setting-group">
+              <label>Default Model</label>
+              <select id="setting-default-model"></select>
+            </div>
+            <div class="setting-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="setting-thinking" />
+                <span>Default thinking mode</span>
+              </label>
+            </div>
+            <div class="model-list" id="model-list"></div>
+          </div>
+          <!-- Skills -->
+          <div class="tab-content" data-tab="skills">
+            <div class="setting-group">
+              <label>Skills Directory</label>
+              <input type="text" id="setting-skills" placeholder="~/.config/agents/skills" />
+            </div>
+            <div class="skills-list" id="skills-list"></div>
+          </div>
+          <!-- MCP -->
+          <div class="tab-content" data-tab="mcp">
+            <div class="mcp-editor">
+              <textarea id="mcp-editor" rows="12" placeholder="MCP configuration JSON"></textarea>
+            </div>
+            <button class="btn-primary" id="btn-save-mcp">Save MCP</button>
+          </div>
+          <!-- Config -->
+          <div class="tab-content" data-tab="config">
+            <div class="config-editor">
+              <textarea id="config-editor" rows="16" placeholder="Kimi configuration"></textarea>
+            </div>
+            <button class="btn-primary" id="btn-save-config">Save Config</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="modal-backdrop" id="login-modal">
+      <div class="modal" style="max-width: 420px;">
+        <div class="modal-header">
+          <h3>Welcome to Kimi</h3>
+          <button class="icon-btn" id="btn-close-login">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body" style="padding: 24px;">
+          <!-- Login Method Selection -->
+          <div id="login-methods">
+            <p style="text-align: center; color: var(--text-secondary); margin-bottom: 24px; font-size: 14px;">
+              Choose how you want to connect to Kimi
+            </p>
+            
+            <!-- OAuth Option -->
+            <div class="login-option" id="login-option-oauth">
+              <div class="login-option-icon">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                  <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                  <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="login-option-content">
+                <div class="login-option-title">Kimi Account</div>
+                <div class="login-option-desc">Login with your Kimi account via browser</div>
+              </div>
+              <svg viewBox="0 0 24 24" width="20" height="20" style="color: var(--text-muted);">
+                <path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+            
+            <!-- API Key Option -->
+            <div class="login-option" id="login-option-apikey">
+              <div class="login-option-icon">
+                <svg viewBox="0 0 24 24" width="24" height="24">
+                  <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </div>
+              <div class="login-option-content">
+                <div class="login-option-title">API Key</div>
+                <div class="login-option-desc">Use your own API key directly</div>
+              </div>
+              <svg viewBox="0 0 24 24" width="20" height="20" style="color: var(--text-muted);">
+                <path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </div>
+          
+          <!-- OAuth Flow -->
+          <div id="login-oauth-flow" class="hidden">
+            <button class="btn-secondary" id="btn-back-to-methods" style="margin-bottom: 16px; width: auto; padding: 6px 12px; font-size: 13px;">
+              ← Back
+            </button>
+            <div id="oauth-start">
+              <p class="login-desc">Click the button below to start the OAuth login process. You'll need to authorize this device in your browser.</p>
+              <button class="btn-primary btn-large" id="btn-login-start" style="width: 100%;">Start Login</button>
+            </div>
+            <div id="oauth-progress" class="hidden">
+              <div class="login-code-section">
+                <div class="login-code-label">Your verification code:</div>
+                <div class="login-user-code" id="login-user-code">----</div>
+              </div>
+              <div class="login-status" id="login-status">Waiting for authorization...</div>
+              <div class="login-actions" style="margin-top: 16px;">
+                <button class="btn-primary" id="btn-open-browser">Open Browser</button>
+                <button class="btn-secondary" id="btn-cancel-login">Cancel</button>
+              </div>
+            </div>
+          </div>
+          
+          <!-- API Key Form -->
+          <div id="login-apikey-form" class="hidden">
+            <button class="btn-secondary" id="btn-back-from-apikey" style="margin-bottom: 16px; width: auto; padding: 6px 12px; font-size: 13px;">
+              ← Back
+            </button>
+            <div style="display: flex; flex-direction: column; gap: 16px;">
+              <div>
+                <label style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text);">API Key</label>
+                <input type="password" id="api-key-input" placeholder="sk-..." style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--text);">API Base URL (optional)</label>
+                <input type="text" id="api-base-input" placeholder="https://api.moonshot.cn/v1" style="width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px;">
+                <span style="font-size: 12px; color: var(--text-muted); margin-top: 4px; display: block;">Leave empty to use default Moonshot API</span>
+              </div>
+              <button class="btn-primary btn-large" id="btn-save-apikey" style="width: 100%; margin-top: 8px;">Connect</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Folder Picker Modal -->
+    <div class="modal-backdrop" id="folder-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Select Folder</h3>
+          <button class="icon-btn" id="btn-close-folder">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="folder-list" id="folder-list"></div>
+        <div class="modal-footer" style="padding: 16px; border-top: 1px solid var(--border);">
+          <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+            <button id="btn-browse-folder" class="btn-secondary" style="flex: 1; padding: 8px 16px; background: #f5f5f5; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M4 7h6l2 2h8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+              Browse...
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" id="custom-folder-input" placeholder="Or enter folder path..." style="flex: 1; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 14px;">
+            <button id="btn-add-custom-folder" class="btn-primary" style="padding: 8px 16px; background: var(--accent); color: white; border: none; border-radius: var(--radius-sm); font-size: 14px; cursor: pointer;">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model Picker Modal -->
+    <div class="modal-backdrop" id="model-modal">
+      <div class="modal">
+        <div class="modal-header">
+          <h3>Select Model</h3>
+          <button class="icon-btn" id="btn-close-model">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="model-options" id="model-options"></div>
+      </div>
+    </div>
+
+    <!-- Tool Approval Modal -->
+    <div class="modal-backdrop" id="tool-approval-modal">
+      <div class="modal tool-approval-modal">
+        <div class="modal-header">
+          <h3>Tool Approval Required</h3>
+          <button class="icon-btn" id="btn-close-tool-approval">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          <div class="tool-approval-title" id="tool-approval-title"></div>
+          <pre class="tool-approval-details" id="tool-approval-details"></pre>
+          <div class="tool-approval-actions">
+            <button class="btn-secondary" id="btn-tool-reject">Reject</button>
+            <button class="btn-primary" id="btn-tool-approve">Approve</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
