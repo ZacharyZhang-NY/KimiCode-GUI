@@ -28,6 +28,20 @@
     models: [],
     user: null,
     isEditingSessions: false,
+    // File explorer state
+    fileTree: null,
+    expandedFolders: new Set(),
+    openTabs: [],
+    activeTab: null,
+    explorerCollapsed: false,
+    gitStatus: {},
+    fileModified: {},
+  };
+  
+  // Tab types
+  const TAB_TYPES = {
+    FILE: 'file',
+    SESSION: 'session'
   };
   
   // Autocomplete state
@@ -135,6 +149,23 @@
       toolApprovalDetails: $('tool-approval-details'),
       btnToolApprove: $('btn-tool-approve'),
       btnToolReject: $('btn-tool-reject'),
+      // File explorer elements
+      fileExplorer: $('file-explorer'),
+      fileExplorerContent: $('file-explorer-content'),
+      btnRefreshFiles: $('btn-refresh-files'),
+      btnCollapseExplorer: $('btn-collapse-explorer'),
+      btnToggleExplorer: $('btn-toggle-explorer'),
+      appContainer: document.querySelector('.app'),
+      tabBar: $('tab-bar'),
+      tabList: $('tab-list'),
+      fileView: $('file-view'),
+      fileViewContent: $('file-view-content'),
+      btnEditFile: $('btn-edit-file'),
+      btnSaveFile: $('btn-save-file'),
+      btnCancelEdit: $('btn-cancel-edit'),
+      fileViewEditor: $('file-view-editor'),
+      fileEditorTextarea: $('file-editor-textarea'),
+      fileViewHeader: document.querySelector('.file-view-header'),
     };
   }
 
@@ -160,6 +191,16 @@
       await loadMcp();
       await loadSkills();
       
+      // Set initial logged-in class
+      if (elements.appContainer) {
+        elements.appContainer.classList.toggle('logged-in', state.isLoggedIn);
+      }
+      
+      // Load file tree if work_dir is set and user is logged in
+      if (state.isLoggedIn && state.settings.work_dir) {
+        await loadFileTree();
+      }
+      
       // Only load sessions and models if logged in
       if (state.isLoggedIn) {
         await loadSessions();
@@ -169,6 +210,11 @@
         elements.sessionList.innerHTML = '<div style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 13px;">Please login to view sessions</div>';
         // Show login prompt in main area
         showLoginPrompt();
+      }
+      
+      // Set initial toggle button state
+      if (elements.btnToggleExplorer) {
+        elements.btnToggleExplorer.classList.toggle('hidden', !state.explorerCollapsed);
       }
       
       initEvents();
@@ -594,6 +640,436 @@
     }
   }
 
+  // ================================
+  // File Explorer Functions
+  // ================================
+  
+  async function loadFileTree() {
+    const workDir = state.settings.work_dir;
+    if (!workDir) {
+      elements.fileExplorerContent.innerHTML = '<div class="file-explorer-empty">Select a folder to view files</div>';
+      return;
+    }
+    
+    try {
+      const tree = await invoke('list_dir_tree', { path: workDir });
+      state.fileTree = tree;
+      
+      // Store git status in a lookup map
+      state.gitStatus = {};
+      if (tree.git_status) {
+        tree.git_status.forEach(status => {
+          state.gitStatus[status.path] = status.status;
+        });
+      }
+      
+      renderFileTree();
+    } catch (err) {
+      console.error('Failed to load file tree:', err);
+      elements.fileExplorerContent.innerHTML = '<div class="file-explorer-empty">Failed to load files</div>';
+    }
+  }
+  
+  function getGitStatusForPath(relPath) {
+    // Check exact match
+    if (state.gitStatus[relPath]) {
+      return state.gitStatus[relPath];
+    }
+    // Check if any parent directory has status
+    for (const [path, status] of Object.entries(state.gitStatus)) {
+      if (path.startsWith(relPath + '/')) {
+        return 'modified'; // Directory contains changes
+      }
+    }
+    return null;
+  }
+  
+  function renderFileTree() {
+    if (!state.fileTree) return;
+    
+    const container = document.createElement('div');
+    container.className = 'file-tree';
+    
+    // Sort entries: folders first, then files
+    const sortedEntries = [...state.fileTree.entries].sort((a, b) => {
+      if (a.is_dir === b.is_dir) {
+        return a.name.localeCompare(b.name);
+      }
+      return a.is_dir ? -1 : 1;
+    });
+    
+    sortedEntries.forEach(entry => {
+      const item = createFileTreeItem(entry, 0);
+      container.appendChild(item);
+    });
+    
+    elements.fileExplorerContent.innerHTML = '';
+    elements.fileExplorerContent.appendChild(container);
+  }
+  
+  function createFileTreeItem(entry, depth) {
+    const hasChildren = entry.is_dir && entry.children && entry.children.length > 0;
+    const isExpanded = state.expandedFolders.has(entry.path);
+    
+    // Get relative path for git status lookup
+    const workDir = state.settings.work_dir || '';
+    const relPath = entry.path.replace(workDir + '/', '').replace(workDir, '');
+    const gitStatus = getGitStatusForPath(relPath);
+    
+    const item = document.createElement('div');
+    item.className = 'file-tree-item-wrapper';
+    
+    const row = document.createElement('div');
+    row.className = 'file-tree-item' + (gitStatus ? ` git-${gitStatus}` : '');
+    row.style.paddingLeft = `${12 + depth * 16}px`;
+    
+    // Toggle button for folders
+    const toggle = document.createElement('button');
+    toggle.className = 'file-tree-toggle' + (isExpanded ? ' expanded' : '');
+    toggle.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    toggle.disabled = !hasChildren;
+    toggle.onclick = (e) => {
+      e.stopPropagation();
+      toggleFolder(entry.path);
+    };
+    row.appendChild(toggle);
+    
+    // Icon
+    const icon = document.createElement('span');
+    icon.className = 'file-tree-icon';
+    if (entry.is_dir) {
+      icon.classList.add(isExpanded ? 'folder-open' : 'folder');
+      icon.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M4 7h6l2 2h8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+    } else {
+      icon.innerHTML = getFileIcon(entry.name);
+    }
+    row.appendChild(icon);
+    
+    // Name
+    const name = document.createElement('span');
+    name.className = 'file-tree-name';
+    name.textContent = entry.name;
+    row.appendChild(name);
+    
+    // Git status indicator dot
+    if (gitStatus && !entry.is_dir) {
+      const statusDot = document.createElement('span');
+      statusDot.className = `file-tree-status ${gitStatus}`;
+      row.appendChild(statusDot);
+    }
+    
+    // Click handler
+    row.onclick = () => {
+      if (entry.is_dir) {
+        toggleFolder(entry.path);
+      } else {
+        openFile(entry.path, entry.name);
+      }
+      
+      // Update selection
+      document.querySelectorAll('.file-tree-item').forEach(el => el.classList.remove('selected'));
+      row.classList.add('selected');
+    };
+    
+    item.appendChild(row);
+    
+    // Children container for folders
+    if (entry.is_dir && entry.children) {
+      const children = document.createElement('div');
+      children.className = 'file-tree-children' + (isExpanded ? ' expanded' : '');
+      
+      if (isExpanded) {
+        const sortedChildren = [...entry.children].sort((a, b) => {
+          if (a.is_dir === b.is_dir) {
+            return a.name.localeCompare(b.name);
+          }
+          return a.is_dir ? -1 : 1;
+        });
+        
+        sortedChildren.forEach(child => {
+          const childItem = createFileTreeItem(child, depth + 1);
+          children.appendChild(childItem);
+        });
+      }
+      
+      item.appendChild(children);
+    }
+    
+    return item;
+  }
+  
+  function toggleFolder(path) {
+    if (state.expandedFolders.has(path)) {
+      state.expandedFolders.delete(path);
+    } else {
+      state.expandedFolders.add(path);
+    }
+    renderFileTree();
+  }
+  
+  function getFileIcon(filename) {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    
+    // File icon based on extension
+    const iconMap = {
+      js: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#f7df1e" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="8" fill="#f7df1e" font-weight="bold">JS</text></svg>',
+      ts: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#3178c6" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="8" fill="#3178c6" font-weight="bold">TS</text></svg>',
+      jsx: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#61dafb" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="7" fill="#61dafb" font-weight="bold">JSX</text></svg>',
+      tsx: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#61dafb" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="7" fill="#61dafb" font-weight="bold">TSX</text></svg>',
+      json: '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="#666" stroke-width="1.5"/><path d="M14 2v6h6" fill="none" stroke="#666" stroke-width="1.5"/><text x="12" y="18" text-anchor="middle" font-size="7" fill="#666" font-weight="bold">{}</text></svg>',
+      md: '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="#666" stroke-width="1.5"/><path d="M14 2v6h6" fill="none" stroke="#666" stroke-width="1.5"/><text x="12" y="17" text-anchor="middle" font-size="8" fill="#666" font-weight="bold">M</text></svg>',
+      css: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#264de4" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="8" fill="#264de4" font-weight="bold">CSS</text></svg>',
+      html: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#e34c26" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="7" fill="#e34c26" font-weight="bold">&lt;/&gt;</text></svg>',
+      py: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#3776ab" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="8" fill="#3776ab" font-weight="bold">Py</text></svg>',
+      rs: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#dea584" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="8" fill="#dea584" font-weight="bold">RS</text></svg>',
+      go: '<svg viewBox="0 0 24 24" width="14" height="14"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="#00add8" stroke-width="1.5"/><text x="12" y="16" text-anchor="middle" font-size="8" fill="#00add8" font-weight="bold">Go</text></svg>',
+    };
+    
+    return iconMap[ext] || '<svg viewBox="0 0 24 24" width="14" height="14"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+  }
+  
+  async function openFile(filePath, fileName) {
+    const workDir = state.settings.work_dir;
+    if (!workDir) return;
+    
+    try {
+      // Check if file is already open
+      const existingTab = state.openTabs.find(tab => tab.path === filePath && tab.type === TAB_TYPES.FILE);
+      if (existingTab) {
+        activateTab(filePath);
+        return;
+      }
+      
+      // Read file content
+      const relPath = filePath.replace(workDir + '/', '');
+      const content = await invoke('read_file', { workDir, filePath: relPath });
+      
+      // Add to tabs
+      const tab = { path: filePath, name: fileName, content, type: TAB_TYPES.FILE };
+      state.openTabs.push(tab);
+      state.activeTab = filePath;
+      
+      renderTabs();
+      showFileView(tab);
+    } catch (err) {
+      showError('Failed to open file: ' + err.message);
+    }
+  }
+  
+  function renderTabs() {
+    if (state.openTabs.length === 0) {
+      elements.tabBar.classList.add('hidden');
+      return;
+    }
+    
+    elements.tabBar.classList.remove('hidden');
+    elements.tabList.innerHTML = state.openTabs.map(tab => `
+      <div class="tab-item ${tab.path === state.activeTab ? 'active' : ''}" data-path="${escapeHtml(tab.path)}">
+        <span class="tab-item-name">${escapeHtml(tab.name)}</span>
+        <button class="tab-item-close" data-path="${escapeHtml(tab.path)}" title="Close">
+          <svg viewBox="0 0 24 24" width="12" height="12">
+            <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+    `).join('');
+    
+    // Add click handlers
+    elements.tabList.querySelectorAll('.tab-item').forEach(tabEl => {
+      tabEl.addEventListener('click', (e) => {
+        if (!e.target.closest('.tab-item-close')) {
+          activateTab(tabEl.dataset.path);
+        }
+      });
+    });
+    
+    elements.tabList.querySelectorAll('.tab-item-close').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        closeTab(btn.dataset.path);
+      });
+    });
+  }
+  
+  function activateTab(path) {
+    state.activeTab = path;
+    renderTabs();
+    
+    const tab = state.openTabs.find(t => t.path === path);
+    if (tab) {
+      if (tab.type === TAB_TYPES.FILE) {
+        showFileView(tab);
+      } else {
+        showChatView(tab.session);
+      }
+    }
+  }
+  
+  function closeTab(path) {
+    const index = state.openTabs.findIndex(t => t.path === path);
+    if (index === -1) return;
+    
+    const tab = state.openTabs[index];
+    state.openTabs.splice(index, 1);
+    
+    if (state.activeTab === path) {
+      exitEditMode();
+      if (state.openTabs.length > 0) {
+        const newIndex = Math.min(index, state.openTabs.length - 1);
+        state.activeTab = state.openTabs[newIndex].path;
+        const nextTab = state.openTabs[newIndex];
+        if (nextTab.type === TAB_TYPES.FILE) {
+          showFileView(nextTab);
+        } else {
+          showChatView(nextTab.session);
+        }
+      } else {
+        state.activeTab = null;
+        state.currentSession = null;
+        elements.fileView.classList.add('hidden');
+        elements.chatView.classList.add('hidden');
+        elements.emptyState.classList.remove('hidden');
+      }
+    }
+    
+    renderTabs();
+  }
+  
+  function showChatView(session) {
+    state.currentSession = session;
+    elements.emptyState.classList.add('hidden');
+    elements.fileView.classList.add('hidden');
+    elements.chatView.classList.remove('hidden');
+    elements.chatTitle.textContent = session.title;
+    
+    // Load messages if not already loaded
+    if (elements.messages.innerHTML === '' || elements.messages.innerHTML.includes('No messages yet')) {
+      loadSessionMessages(session);
+    }
+  }
+  
+  function showFileView(tab) {
+    elements.emptyState.classList.add('hidden');
+    elements.chatView.classList.add('hidden');
+    elements.fileView.classList.remove('hidden');
+    
+    // Detect language for highlighting
+    const ext = tab.name.split('.').pop()?.toLowerCase();
+    const langMap = {
+      js: 'javascript', ts: 'typescript', jsx: 'javascript', tsx: 'typescript',
+      py: 'python', rs: 'rust', go: 'go', java: 'java', cpp: 'cpp', c: 'c',
+      html: 'xml', xml: 'xml', css: 'css', scss: 'scss', sass: 'sass',
+      json: 'json', md: 'markdown', yaml: 'yaml', yml: 'yaml', toml: 'toml',
+      sh: 'bash', bash: 'bash', zsh: 'bash'
+    };
+    const lang = langMap[ext] || '';
+    
+    // Escape HTML
+    const escaped = tab.content
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    
+    elements.fileViewContent.innerHTML = `<pre><code class="hljs ${lang}">${escaped}</code></pre>`;
+    
+    // Apply syntax highlighting
+    if (typeof hljs !== 'undefined' && lang) {
+      elements.fileViewContent.querySelectorAll('pre code').forEach(block => {
+        hljs.highlightElement(block);
+      });
+    }
+  }
+  
+  function hideFileView() {
+    elements.fileView.classList.add('hidden');
+    exitEditMode();
+    
+    if (state.currentSession) {
+      elements.chatView.classList.remove('hidden');
+    } else {
+      elements.emptyState.classList.remove('hidden');
+    }
+  }
+  
+  function enterEditMode() {
+    if (!state.activeTab) return;
+    
+    const tab = state.openTabs.find(t => t.path === state.activeTab);
+    if (!tab) return;
+    
+    // Show editor
+    elements.fileViewContent.classList.add('hidden');
+    elements.fileViewEditor.classList.remove('hidden');
+    elements.fileEditorTextarea.value = tab.content;
+    elements.fileEditorTextarea.focus();
+    
+    // Update buttons
+    elements.btnEditFile.classList.add('hidden');
+    elements.btnSaveFile.classList.remove('hidden');
+    elements.btnCancelEdit.classList.remove('hidden');
+    
+    // Track original content for comparison
+    state.editOriginalContent = tab.content;
+  }
+  
+  function exitEditMode() {
+    // Hide editor
+    elements.fileViewContent.classList.remove('hidden');
+    elements.fileViewEditor.classList.add('hidden');
+    
+    // Update buttons
+    elements.btnEditFile.classList.remove('hidden');
+    elements.btnSaveFile.classList.add('hidden');
+    elements.btnCancelEdit.classList.add('hidden');
+    
+    state.editOriginalContent = null;
+  }
+  
+  async function saveFile() {
+    if (!state.activeTab) return;
+    
+    const tab = state.openTabs.find(t => t.path === state.activeTab);
+    if (!tab) return;
+    
+    const newContent = elements.fileEditorTextarea.value;
+    const workDir = state.settings.work_dir;
+    if (!workDir) return;
+    
+    try {
+      const relPath = tab.path.replace(workDir + '/', '');
+      await invoke('write_file', { workDir, filePath: relPath, content: newContent });
+      
+      // Update tab content
+      tab.content = newContent;
+      
+      // Exit edit mode and refresh view
+      exitEditMode();
+      showFileView(tab);
+      
+      showSuccess('File saved');
+      
+      // Refresh git status
+      loadFileTree();
+    } catch (err) {
+      showError('Failed to save file: ' + err.message);
+    }
+  }
+  
+  function cancelEdit() {
+    exitEditMode();
+  }
+  
+  function toggleExplorer() {
+    state.explorerCollapsed = !state.explorerCollapsed;
+    if (elements.appContainer) {
+      elements.appContainer.classList.toggle('explorer-collapsed', state.explorerCollapsed);
+    }
+    // Update toggle button visibility
+    if (elements.btnToggleExplorer) {
+      elements.btnToggleExplorer.classList.toggle('hidden', !state.explorerCollapsed);
+    }
+  }
+
   async function loadConfig() {
     try {
       const path = state.settings.config_file || null;
@@ -877,9 +1353,16 @@
     return div.innerHTML;
   }
 
-  function openSession(sessionId) {
+  async function openSession(sessionId) {
     const session = state.sessions.find(s => s.id === sessionId);
     if (!session) return;
+    
+    // Check if session is already open
+    const existingTab = state.openTabs.find(tab => tab.path === sessionId && tab.type === TAB_TYPES.SESSION);
+    if (existingTab) {
+      activateTab(sessionId);
+      return;
+    }
     
     state.currentSession = session;
     if (session.work_dir) {
@@ -887,12 +1370,16 @@
       updateUI();
     }
     state.messages = [];
-    elements.chatTitle.textContent = session.title;
     
-    elements.emptyState.classList.add('hidden');
-    elements.chatView.classList.remove('hidden');
+    // Add to tabs
+    const tab = { path: sessionId, name: session.title, type: TAB_TYPES.SESSION, session: session };
+    state.openTabs.push(tab);
+    state.activeTab = sessionId;
     
-    loadSessionMessages(session);
+    renderTabs();
+    showChatView(session);
+    
+    await loadSessionMessages(session);
     renderSessions();
   }
 
@@ -925,15 +1412,38 @@
   }
 
   function closeChat() {
+    // Close the current session tab
+    if (state.currentSession) {
+      closeTab(state.currentSession.id);
+    }
+    
     state.currentSession = null;
     state.messages = [];
-    elements.emptyState.classList.remove('hidden');
-    elements.chatView.classList.add('hidden');
-    elements.messages.innerHTML = '';
     currentMessageEl = null;
     currentTextBuffer = '';
     toolMessages.clear();
     renderSessions();
+  }
+  
+  function createNewSessionTab() {
+    const sessionId = generateId();
+    const title = 'New Session';
+    
+    // Add to tabs
+    const tab = { path: sessionId, name: title, type: TAB_TYPES.SESSION, session: null, isNew: true };
+    state.openTabs.push(tab);
+    state.activeTab = sessionId;
+    state.currentSession = null;
+    
+    renderTabs();
+    showNewSessionView();
+  }
+  
+  function showNewSessionView() {
+    elements.chatView.classList.add('hidden');
+    elements.fileView.classList.add('hidden');
+    elements.emptyState.classList.remove('hidden');
+    elements.promptInput.focus();
   }
 
   async function sendMessage(text, fromChat = false) {
@@ -949,6 +1459,14 @@
     
     const inputEl = fromChat ? elements.chatInput : elements.promptInput;
     inputEl.value = '';
+    
+    // Check if current tab is a "New Session" tab (empty session)
+    const currentTab = state.openTabs.find(t => t.path === state.activeTab);
+    if (currentTab && currentTab.isNew) {
+      // Convert the "New Session" tab to a real session
+      await startNewSessionInTab(text, currentTab);
+      return;
+    }
     
     if (!state.currentSession) {
       await startNewSession(text);
@@ -1004,7 +1522,77 @@
       updated_at: Date.now() / 1000,
     };
     
+    // Add to tabs
+    const tab = { path: sessionId, name: title, type: TAB_TYPES.SESSION, session: state.currentSession };
+    state.openTabs.push(tab);
+    state.activeTab = sessionId;
+    renderTabs();
+    
     elements.emptyState.classList.add('hidden');
+    elements.fileView.classList.add('hidden');
+    elements.chatView.classList.remove('hidden');
+    elements.messages.innerHTML = '';
+    elements.chatTitle.textContent = title;
+    toolMessages.clear();
+    
+    // Add user message
+    const userMsg = createMessageElement('user', prompt);
+    elements.messages.appendChild(userMsg);
+    
+    currentMessageEl = null;
+    currentTextBuffer = '';
+    state.isStreaming = true;
+    
+    enableInputs(false);
+    showLoading('Kimi is thinking...');
+    
+    try {
+      const sessionWorkDir = state.currentSession?.work_dir || state.settings.work_dir || state.paths?.work_dir || null;
+      await invoke('chat_stream', {
+        sessionId: sessionId,
+        message: prompt,
+        settings: {
+          ...state.settings,
+          work_dir: sessionWorkDir,
+        },
+      });
+      
+      // Add to sessions list
+      state.sessions.unshift({
+        ...state.currentSession,
+        updated_at: Date.now() / 1000,
+      });
+      renderSessions();
+      
+    } catch (err) {
+      const errorMsg = err?.message || err || 'Failed to start session';
+      showError(errorMsg);
+      finishStreaming();
+    }
+  }
+  
+  async function startNewSessionInTab(prompt, existingTab) {
+    const sessionId = existingTab.path;
+    const title = prompt.length > 50 ? prompt.slice(0, 47) + '...' : prompt;
+    
+    const workDir = state.settings.work_dir || state.paths?.work_dir || null;
+    state.settings.work_dir = workDir;
+    state.currentSession = {
+      id: sessionId,
+      title: title,
+      work_dir: workDir,
+      updated_at: Date.now() / 1000,
+    };
+    
+    // Update the existing tab
+    existingTab.name = title;
+    existingTab.session = state.currentSession;
+    existingTab.isNew = false;
+    state.activeTab = sessionId;
+    renderTabs();
+    
+    elements.emptyState.classList.add('hidden');
+    elements.fileView.classList.add('hidden');
     elements.chatView.classList.remove('hidden');
     elements.messages.innerHTML = '';
     elements.chatTitle.textContent = title;
@@ -1104,10 +1692,21 @@
       elements.userStatus.appendChild(hint);
       elements.userBar.classList.add('logged-in');
       elements.userBar.onclick = handleLogout;
+      
+      // Show file explorer for logged in users
+      document.querySelector('.app').classList.add('logged-in');
+      
+      // Load file tree if work_dir is set
+      if (state.settings.work_dir) {
+        loadFileTree();
+      }
     } else {
       elements.userStatus.textContent = 'Click to login';
       elements.userBar.classList.remove('logged-in');
       elements.userBar.onclick = openLoginModal;
+      
+      // Hide file explorer for logged out users
+      document.querySelector('.app').classList.remove('logged-in');
     }
   }
   
@@ -1570,8 +2169,7 @@
 
   function initEvents() {
     elements.btnNewSession.addEventListener('click', () => {
-      closeChat();
-      elements.promptInput.focus();
+      createNewSessionTab();
     });
     
     elements.btnEditSessions.addEventListener('click', () => {
@@ -1666,6 +2264,7 @@
           closeModals();
           loadSkills();
           loadSessions();
+          loadFileTree();
         });
       });
       
@@ -1684,6 +2283,7 @@
             closeModals();
             loadSkills();
             loadSessions();
+            loadFileTree();
           }
         });
         
@@ -1708,6 +2308,7 @@
             closeModals();
             loadSkills();
             loadSessions();
+            loadFileTree();
           }
         } catch (err) {
             const message = err?.message || err || 'Failed to open folder picker';
@@ -1863,6 +2464,7 @@
       await loadConfig();
       await loadSkills();
       await loadSessions();
+      await loadFileTree();
       updateUI();
       elements.drawerBackdrop.classList.remove('open');
       showSuccess('Settings saved');
@@ -1893,6 +2495,43 @@
         showError('Failed to save config: ' + err);
       }
     });
+    
+    // File explorer events
+    if (elements.btnRefreshFiles) {
+      elements.btnRefreshFiles.addEventListener('click', loadFileTree);
+    }
+    
+    if (elements.btnCollapseExplorer) {
+      elements.btnCollapseExplorer.addEventListener('click', toggleExplorer);
+    }
+    
+    if (elements.btnToggleExplorer) {
+      elements.btnToggleExplorer.addEventListener('click', toggleExplorer);
+    }
+    
+    if (elements.btnEditFile) {
+      elements.btnEditFile.addEventListener('click', enterEditMode);
+    }
+    
+    if (elements.btnSaveFile) {
+      elements.btnSaveFile.addEventListener('click', saveFile);
+    }
+    
+    if (elements.btnCancelEdit) {
+      elements.btnCancelEdit.addEventListener('click', cancelEdit);
+    }
+    
+    // Keyboard shortcuts for file editor
+    if (elements.fileEditorTextarea) {
+      elements.fileEditorTextarea.addEventListener('keydown', e => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+          e.preventDefault();
+          saveFile();
+        } else if (e.key === 'Escape') {
+          cancelEdit();
+        }
+      });
+    }
     
     window.addEventListener('keydown', e => {
       if (e.key === 'Escape') {

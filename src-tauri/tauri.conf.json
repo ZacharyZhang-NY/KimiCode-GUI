@@ -1,6 +1,6 @@
 {
   "productName": "Kimi GUI",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "identifier": "com.kimi.cli.gui",
   "mainBinaryName": "kimi-gui",
   "build": {

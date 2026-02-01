@@ -55,10 +55,20 @@
 
       <!-- Main Content -->
       <main class="main" id="main">
+        <!-- Tab Bar -->
+        <div class="tab-bar hidden" id="tab-bar">
+          <div class="tab-list" id="tab-list"></div>
+        </div>
+        
+        <!-- Explorer Toggle Button (shown when collapsed) -->
+        <button class="explorer-toggle-btn hidden" id="btn-toggle-explorer" title="Show file explorer">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path d="M4 7h16M4 12h16M4 17h16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+        
         <!-- Empty State -->
         <div class="empty-state" id="empty-state">
-          <div class="preview-badge">Preview</div>
-          
           <div class="logo">
             <div class="logo-pill">
               <svg class="logo-kimi" viewBox="0 0 55 24" xmlns="http://www.w3.org/2000/svg">
@@ -68,6 +78,8 @@
             </div>
             <span class="logo-code">Code</span>
           </div>
+          
+          <div class="preview-badge">Preview</div>
 
           <!-- Controls Row -->
           <div class="controls-row">
@@ -143,6 +155,36 @@
           <span>Thinking...</span>
         </div>
 
+        <!-- File View (hidden initially) -->
+        <div class="file-view hidden" id="file-view">
+          <div class="file-view-header">
+            <div class="file-view-actions">
+              <button class="icon-btn" id="btn-edit-file" title="Edit file">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button class="icon-btn hidden" id="btn-cancel-edit" title="Cancel edit">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path d="M10 19l-7-7m0 0l7-7m-7 7h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <button class="icon-btn hidden" id="btn-save-file" title="Save file (Cmd+S)">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <path d="M17 21v-8H7v8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  <path d="M7 3v5h8V3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="file-view-content" id="file-view-content"></div>
+          <div class="file-view-editor hidden" id="file-view-editor">
+            <textarea id="file-editor-textarea" spellcheck="false"></textarea>
+          </div>
+        </div>
+        
         <!-- Chat View (hidden initially) -->
         <div class="chat-view hidden" id="chat-view">
           <div class="chat-header">
@@ -193,8 +235,29 @@
           </div>
         </div>
       </main>
+      
+      <!-- File Explorer Sidebar -->
+      <aside class="file-explorer" id="file-explorer">
+      <div class="file-explorer-header">
+        <span class="file-explorer-title">Files</span>
+        <button class="icon-btn" id="btn-refresh-files" title="Refresh">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <path d="M23 4v6h-6M1 20v-6h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+        <button class="icon-btn" id="btn-collapse-explorer" title="Collapse">
+          <svg viewBox="0 0 24 24" width="14" height="14">
+            <path d="M11 17l-5-5 5-5M18 17l-5-5 5-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="file-explorer-content" id="file-explorer-content">
+        <div class="file-explorer-empty">Select a folder to view files</div>
+      </div>
+    </aside>
     </div>
-
+    
     <!-- Settings Drawer -->
     <div class="drawer-backdrop" id="drawer-backdrop">
       <div class="drawer">

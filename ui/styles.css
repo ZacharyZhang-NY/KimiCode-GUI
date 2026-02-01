@@ -63,9 +63,58 @@ html, body {
 .app {
   position: relative;
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: 280px 1fr 260px;
   height: 100vh;
   overflow: hidden;
+}
+
+.app.explorer-collapsed {
+  grid-template-columns: 280px 1fr 0;
+}
+
+.app:not(.logged-in) .file-explorer {
+  display: none;
+}
+
+.app:not(.logged-in) {
+  grid-template-columns: 280px 1fr;
+}
+
+.app:not(.logged-in).explorer-collapsed {
+  grid-template-columns: 280px 1fr;
+}
+
+/* Explorer Toggle Button in Main Content */
+.explorer-toggle-btn {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  z-index: 50;
+  color: var(--text-secondary);
+  transition: var(--transition);
+}
+
+.explorer-toggle-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
+.app:not(.explorer-collapsed) .explorer-toggle-btn {
+  display: none;
+}
+
+.app:not(.logged-in) .explorer-toggle-btn {
+  display: none;
 }
 
 /* ================================
@@ -357,6 +406,89 @@ html, body {
   overflow: hidden;
 }
 
+/* Tab Bar */
+.tab-bar {
+  display: flex;
+  align-items: center;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  padding: 4px 4px 0;
+  gap: 2px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tab-bar.hidden {
+  display: none;
+}
+
+.tab-list {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.tab-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+  max-width: 200px;
+  min-width: 80px;
+}
+
+.tab-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--text);
+}
+
+.tab-item.active {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+.tab-item-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-item-close {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: var(--transition);
+}
+
+.tab-item:hover .tab-item-close,
+.tab-item.active .tab-item-close {
+  opacity: 1;
+}
+
+.tab-item-close:hover {
+  background: var(--accent-light);
+  color: var(--text);
+}
+
 /* Empty State */
 .empty-state {
   flex: 1;
@@ -372,15 +504,13 @@ html, body {
 }
 
 .preview-badge {
-  position: absolute;
-  top: 20px;
-  left: 32px;
   padding: 4px 12px;
   background: rgba(0, 0, 0, 0.05);
   border-radius: 999px;
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
+  margin-top: 8px;
 }
 
 .logo {
@@ -1001,6 +1131,270 @@ html, body {
 }
 
 /* ================================
+   File View
+   ================================ */
+
+.file-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.file-view.hidden {
+  display: none !important;
+}
+
+.file-view-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.file-view-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.file-view-content {
+  flex: 1;
+  overflow: auto;
+  padding: 0;
+  background: var(--surface);
+}
+
+.file-view-content pre {
+  margin: 0;
+  padding: 24px;
+  font-family: 'SF Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre;
+  word-wrap: normal;
+  overflow-x: auto;
+}
+
+.file-view-content code {
+  font-family: inherit;
+}
+
+/* File Editor */
+.file-view-editor {
+  flex: 1;
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.file-view-editor.hidden {
+  display: none;
+}
+
+.file-view-editor textarea {
+  width: 100%;
+  height: 100%;
+  padding: 24px;
+  border: none;
+  background: var(--surface);
+  font-family: 'SF Mono', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  resize: none;
+  outline: none;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-x: auto;
+  tab-size: 2;
+}
+
+/* ================================
+   File Explorer Sidebar
+   ================================ */
+
+.file-explorer {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-sidebar);
+  border-left: 1px solid var(--border);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.file-explorer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.file-explorer-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.file-explorer-content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 0;
+}
+
+.file-explorer-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+/* File Tree */
+.file-tree {
+  font-size: 13px;
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  color: var(--text);
+  transition: var(--transition);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.file-tree-item:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.file-tree-item.active {
+  background: var(--accent-light);
+}
+
+.file-tree-item.selected {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.file-tree-toggle {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+
+.file-tree-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.file-tree-toggle:disabled {
+  opacity: 0;
+  cursor: default;
+}
+
+.file-tree-icon {
+  width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.file-tree-icon.folder {
+  color: #eab308;
+}
+
+.file-tree-icon.folder-open {
+  color: #eab308;
+}
+
+.file-tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Git Status Indicators */
+.file-tree-item.git-modified .file-tree-name {
+  color: #f59e0b;
+}
+
+.file-tree-item.git-added .file-tree-name {
+  color: #22c55e;
+}
+
+.file-tree-item.git-untracked .file-tree-name {
+  color: #6b7280;
+}
+
+.file-tree-item.git-staged .file-tree-name {
+  color: #3b82f6;
+}
+
+.file-tree-item.git-deleted .file-tree-name {
+  color: #ef4444;
+  text-decoration: line-through;
+}
+
+.file-tree-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-left: 4px;
+}
+
+.file-tree-status.modified {
+  background: #f59e0b;
+}
+
+.file-tree-status.added {
+  background: #22c55e;
+}
+
+.file-tree-status.untracked {
+  background: #9ca3af;
+}
+
+.file-tree-status.staged {
+  background: #3b82f6;
+}
+
+.file-tree-status.deleted {
+  background: #ef4444;
+}
+
+.file-tree-children {
+  display: none;
+}
+
+.file-tree-children.expanded {
+  display: block;
+}
+
+.file-tree-indent {
+  width: 16px;
+  flex-shrink: 0;
+}
+
+/* ================================
    Drawer (Settings)
    ================================ */
 
@@ -1400,12 +1794,19 @@ html, body {
    Responsive
    ================================ */
 
+@media (max-width: 1100px) {
+  .app {
+    grid-template-columns: 260px 1fr 220px;
+  }
+}
+
 @media (max-width: 900px) {
   .app {
     grid-template-columns: 1fr;
   }
   
-  .sidebar {
+  .sidebar,
+  .file-explorer {
     display: none;
   }
   
@@ -1417,11 +1818,6 @@ html, body {
 @media (max-width: 640px) {
   .empty-state {
     padding: 16px;
-  }
-  
-  .preview-badge {
-    left: 16px;
-    top: 16px;
   }
   
   .messages {

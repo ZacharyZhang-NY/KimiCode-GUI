@@ -1071,6 +1071,179 @@ async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     Ok(folder.map(|p| p.to_string()))
 }
 
+#[derive(Clone, Serialize)]
+struct DirEntry {
+    name: String,
+    path: String,
+    is_dir: bool,
+    children: Option<Vec<DirEntry>>,
+}
+
+#[derive(Clone, Serialize)]
+struct DirTree {
+    path: String,
+    name: String,
+    entries: Vec<DirEntry>,
+    git_status: Vec<GitStatusEntry>,
+}
+
+#[tauri::command]
+fn list_dir_tree(path: String) -> Result<DirTree, String> {
+    let root = Path::new(&path);
+    if !root.exists() {
+        return Err("Path does not exist".to_string());
+    }
+    
+    if !root.is_dir() {
+        return Err("Path is not a directory".to_string());
+    }
+    
+    fn is_ignored(name: &str) -> bool {
+        let ignored = [
+            ".git", ".svn", ".hg", ".DS_Store",
+            "node_modules", "target", "dist", "build",
+            ".venv", "venv", "__pycache__", ".pytest_cache",
+            ".idea", ".vscode", ".next", ".nuxt",
+            "Cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+        ];
+        ignored.iter().any(|&i| name == i || name.starts_with('.'))
+    }
+    
+    fn read_dir_recursive(path: &Path, root: &Path, depth: usize) -> Result<Vec<DirEntry>, String> {
+        if depth > 10 {
+            return Ok(Vec::new()); // Limit depth
+        }
+        
+        let mut entries = Vec::new();
+        
+        let dir_entries = match std::fs::read_dir(path) {
+            Ok(entries) => entries,
+            Err(_) => return Ok(Vec::new()), // Skip directories we can't read
+        };
+        
+        for entry in dir_entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            
+            if is_ignored(&name) {
+                continue;
+            }
+            
+            let full_path = entry.path();
+            let path_str = full_path.to_string_lossy().to_string();
+            let is_dir = full_path.is_dir();
+            
+            let children = if is_dir && depth < 2 {
+                // Only load children for first 2 levels initially
+                Some(read_dir_recursive(&full_path, root, depth + 1)?)
+            } else if is_dir {
+                Some(Vec::new()) // Empty vec to indicate it has children but not loaded yet
+            } else {
+                None
+            };
+            
+            entries.push(DirEntry {
+                name,
+                path: path_str,
+                is_dir,
+                children,
+            });
+        }
+        
+        // Sort: directories first, then by name
+        entries.sort_by(|a, b| {
+            match (a.is_dir, b.is_dir) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.cmp(&b.name),
+            }
+        });
+        
+        Ok(entries)
+    }
+    
+    let entries = read_dir_recursive(root, root, 0)?;
+    
+    // Get git status for all files
+    let git_status = get_git_status(root);
+    
+    Ok(DirTree {
+        path: path.clone(),
+        name: root.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("root")
+            .to_string(),
+        entries,
+        git_status,
+    })
+}
+
+#[derive(Clone, Serialize)]
+struct GitStatusEntry {
+    path: String,
+    status: String, // "modified", "added", "deleted", "untracked", "staged"
+}
+
+fn get_git_status(root: &Path) -> Vec<GitStatusEntry> {
+    let mut status_entries = Vec::new();
+    
+    // Check if it's a git repo
+    let git_dir = root.join(".git");
+    if !git_dir.exists() {
+        return status_entries;
+    }
+    
+    // Run git status --porcelain
+    let output = std::process::Command::new("git")
+        .args(["-C", root.to_str().unwrap_or("."), "status", "--porcelain"])
+        .output();
+    
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            if line.len() < 3 {
+                continue;
+            }
+            let status_code = &line[0..2];
+            let file_path = line[3..].to_string();
+            
+            let status = match status_code {
+                "M " | "M" => "staged",
+                " M" => "modified",
+                "A " | "A" => "added",
+                "D " | " D" => "deleted",
+                "??" => "untracked",
+                _ => "modified",
+            };
+            
+            status_entries.push(GitStatusEntry {
+                path: file_path,
+                status: status.to_string(),
+            });
+        }
+    }
+    
+    status_entries
+}
+
+#[tauri::command]
+fn write_file(work_dir: String, file_path: String, content: String) -> Result<(), String> {
+    let root = Path::new(&work_dir);
+    let full_path = root.join(&file_path);
+    
+    // Security: ensure the path is within work_dir
+    let canonical = full_path.canonicalize()
+        .map_err(|e| format!("Failed to resolve path: {}", e))?;
+    let canonical_root = root.canonicalize()
+        .map_err(|e| format!("Failed to resolve work dir: {}", e))?;
+    
+    if !canonical.starts_with(&canonical_root) {
+        return Err("Path is outside working directory".to_string());
+    }
+    
+    std::fs::write(&canonical, content)
+        .map_err(|e| format!("Failed to write file: {}", e))
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1100,7 +1273,9 @@ fn main() {
             cancel_chat,
             list_files,
             read_file,
+            write_file,
             pick_folder,
+            list_dir_tree,
             tool_approval_respond,
             // OAuth commands
             oauth::oauth_check_status,
