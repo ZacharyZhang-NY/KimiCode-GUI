@@ -1,6 +1,9 @@
 node_modules/
 dist/
 .env
+.env.local
 .DS_Store
 src-tauri/target/
 src-tauri/gen/
+authkey.p12.b64
+cert.p12.b64
