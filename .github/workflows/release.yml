@@ -89,12 +89,14 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           APPLE_API_KEY_PATH: ${{ github.workspace }}/api_key.p8
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
 
       - name: Notarize and staple macOS app
         if: runner.os == 'macOS'
         env:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
         run: |
           set -euo pipefail
           APP_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Kimi GUI.app"
@@ -106,6 +108,13 @@ jobs:
           if ! grep -q "BEGIN PRIVATE KEY" "$GITHUB_WORKSPACE/api_key.p8"; then
             echo "api_key.p8 missing or invalid"
             exit 1
+          fi
+          if ! codesign --verify --deep --strict --verbose=2 "$APP_PATH"; then
+            if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+              echo "APPLE_SIGNING_IDENTITY is required to sign the app"
+              exit 1
+            fi
+            codesign --force --options runtime --deep --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
           fi
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           APP_ZIP="Kimi GUI.app.zip"
