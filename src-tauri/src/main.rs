@@ -9,8 +9,10 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use tauri::{Emitter, Manager};
 // 
 
 pub use oauth::{OAuthToken, load_token, save_token, delete_token, is_logged_in};
@@ -36,6 +38,7 @@ struct AppPaths {
 #[serde(default)]
 struct GuiSettings {
     work_dir: Option<String>,
+    recent_work_dirs: Vec<String>,
     config_file: Option<String>,
     mcp_config_files: Vec<String>,
     skills_dir: Option<String>,
@@ -43,6 +46,7 @@ struct GuiSettings {
     thinking: Option<bool>,
     yolo: Option<bool>,
     pinned_sessions: Vec<String>,
+    pinned_cowork_tasks: Vec<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -78,6 +82,37 @@ struct AuthStatus {
     is_logged_in: bool,
     user: Option<String>,
     mode: String, // "oauth" | "api_key" | "none"
+}
+
+#[derive(Clone, Serialize)]
+struct AgentBrowserStatus {
+    available: bool,
+    command: Option<String>,
+    detail: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CoworkHistoryStep {
+    title: String,
+    description: String,
+    #[serde(default)]
+    log: String,
+    #[serde(default)]
+    status: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CoworkHistoryEntry {
+    id: String,
+    prompt: String,
+    status: String,
+    folder: Option<String>,
+    created_at: i64,
+    updated_at: i64,
+    #[serde(default)]
+    steps: Vec<CoworkHistoryStep>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -140,6 +175,107 @@ fn auth_set_api_key(api_key: String, api_base: Option<String>) -> Result<(), Str
     save_auth_config(&config)
 }
 
+fn command_exists(cmd: &str) -> bool {
+    #[cfg(windows)]
+    let mut check = {
+        let mut c = Command::new("where");
+        c.arg(cmd);
+        c
+    };
+
+    #[cfg(not(windows))]
+    let mut check = {
+        let mut c = Command::new("which");
+        c.arg(cmd);
+        c
+    };
+
+    check
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
+}
+
+fn shell_escape_path(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", value.replace('\"', "\"\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
+}
+
+fn embedded_agent_browser_path(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let resource_dir = app.path().resource_dir().ok()?;
+    let target_key = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let binary_name = if cfg!(windows) {
+        "agent-browser.exe"
+    } else {
+        "agent-browser"
+    };
+
+    let candidates = [
+        resource_dir
+            .join("agent-browser")
+            .join(&target_key)
+            .join(binary_name),
+        resource_dir.join("agent-browser").join(binary_name),
+    ];
+
+    candidates.into_iter().find(|path| path.is_file())
+}
+
+#[tauri::command]
+fn agent_browser_status(app: tauri::AppHandle) -> AgentBrowserStatus {
+    if let Some(path) = embedded_agent_browser_path(&app) {
+        return AgentBrowserStatus {
+            available: true,
+            command: Some(shell_escape_path(&path)),
+            detail: format!("Bundled agent-browser found at {}", path.to_string_lossy()),
+        };
+    }
+
+    if command_exists("agent-browser") {
+        return AgentBrowserStatus {
+            available: true,
+            command: Some("agent-browser".to_string()),
+            detail: "agent-browser is available in PATH.".to_string(),
+        };
+    }
+
+    if command_exists("npx") {
+        return AgentBrowserStatus {
+            available: true,
+            command: Some("npx --yes agent-browser".to_string()),
+            detail: "agent-browser not found in PATH; npx fallback is available.".to_string(),
+        };
+    }
+
+    AgentBrowserStatus {
+        available: false,
+        command: None,
+        detail: "Neither agent-browser nor npx is available.".to_string(),
+    }
+}
+
+fn agent_browser_policy(app: &tauri::AppHandle) -> String {
+    let status = agent_browser_status(app.clone());
+    if status.available {
+        let command = status.command.unwrap_or_else(|| "agent-browser".to_string());
+        format!(
+            "Internet access policy:\n- For any request that needs internet/web pages, you MUST use the Shell tool with agent-browser.\n- Command prefix: {command}\n- Default flow: open <url> -> snapshot -i -> interact using @eN refs -> re-snapshot after navigation.\n- Do NOT use SearchWeb or FetchURL."
+        )
+    } else {
+        format!(
+            "Internet access policy:\n- For any request that needs internet/web pages, use Shell tool with agent-browser only.\n- agent-browser is currently unavailable in this environment ({detail}).\n- Report this limitation clearly and stop before attempting web access.\n- Do NOT use SearchWeb or FetchURL.",
+            detail = status.detail
+        )
+    }
+}
+
 #[tauri::command]
 fn auth_clear() -> Result<(), String> {
     // Clear OAuth token
@@ -179,7 +315,88 @@ fn home_dir() -> PathBuf {
 }
 
 fn kimi_share_dir() -> PathBuf {
+    home_dir().join(".kimicodegui")
+}
+
+fn cowork_history_path() -> PathBuf {
+    kimi_share_dir().join("cowork").join("history.json")
+}
+
+fn legacy_kimi_share_dir() -> PathBuf {
     home_dir().join(".kimi")
+}
+
+fn copy_file_if_missing(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.exists() || destination.exists() {
+        return Ok(());
+    }
+    ensure_parent(destination)?;
+    fs::copy(source, destination).map_err(|error| {
+        format!(
+            "Failed to migrate file from {source:?} to {destination:?}: {error}"
+        )
+    })?;
+    Ok(())
+}
+
+fn copy_dir_if_missing(source: &Path, destination: &Path) -> Result<(), String> {
+    if !source.is_dir() {
+        return Ok(());
+    }
+
+    if !destination.exists() {
+        fs::create_dir_all(destination).map_err(|error| {
+            format!("Failed to create migration directory {destination:?}: {error}")
+        })?;
+    }
+
+    let entries = fs::read_dir(source)
+        .map_err(|error| format!("Failed to read migration directory {source:?}: {error}"))?;
+
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("Failed to read migration entry in {source:?}: {error}"))?;
+        let source_path = entry.path();
+        let destination_path = destination.join(entry.file_name());
+        let file_type = entry
+            .file_type()
+            .map_err(|error| format!("Failed to inspect {source_path:?}: {error}"))?;
+
+        if file_type.is_dir() {
+            copy_dir_if_missing(&source_path, &destination_path)?;
+        } else if file_type.is_file() {
+            copy_file_if_missing(&source_path, &destination_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn migrate_legacy_kimi_share_dir() -> Result<(), String> {
+    let legacy = legacy_kimi_share_dir();
+    let current = kimi_share_dir();
+    if !legacy.exists() || legacy == current {
+        return Ok(());
+    }
+
+    fs::create_dir_all(&current)
+        .map_err(|error| format!("Failed to create {current:?}: {error}"))?;
+
+    for file_name in [
+        "config.toml",
+        "mcp.json",
+        "gui.json",
+        "kimi.json",
+        "gui_auth.json",
+    ] {
+        copy_file_if_missing(&legacy.join(file_name), &current.join(file_name))?;
+    }
+
+    for dir_name in ["credentials", "sessions", "gui_sessions"] {
+        copy_dir_if_missing(&legacy.join(dir_name), &current.join(dir_name))?;
+    }
+
+    Ok(())
 }
 
 fn default_config_path() -> PathBuf {
@@ -281,6 +498,52 @@ fn encode_config_content(path: &Path, data: &serde_json::Value) -> Result<String
     }
 }
 
+fn normalize_legacy_storage_path(path: &str) -> String {
+    let unix = path.replace("/.kimi/", "/.kimicodegui/");
+    let unix = if unix.ends_with("/.kimi") {
+        format!(
+            "{}/.kimicodegui",
+            unix.trim_end_matches("/.kimi")
+        )
+    } else {
+        unix
+    };
+
+    let windows = unix.replace("\\.kimi\\", "\\.kimicodegui\\");
+    if windows.ends_with("\\.kimi") {
+        format!(
+            "{}\\.kimicodegui",
+            windows.trim_end_matches("\\.kimi")
+        )
+    } else {
+        windows
+    }
+}
+
+fn normalize_gui_settings_paths(mut settings: GuiSettings) -> GuiSettings {
+    settings.config_file = settings
+        .config_file
+        .map(|path| normalize_legacy_storage_path(&path));
+    settings.skills_dir = settings
+        .skills_dir
+        .map(|path| normalize_legacy_storage_path(&path));
+    settings.mcp_config_files = settings
+        .mcp_config_files
+        .into_iter()
+        .map(|path| normalize_legacy_storage_path(&path))
+        .collect();
+    let mut seen = std::collections::HashSet::new();
+    settings.recent_work_dirs = settings
+        .recent_work_dirs
+        .into_iter()
+        .map(|path| normalize_legacy_storage_path(&path))
+        .filter(|path| !path.trim().is_empty())
+        .filter(|path| seen.insert(path.clone()))
+        .take(5)
+        .collect();
+    settings
+}
+
 fn find_repo_root() -> Option<PathBuf> {
     let mut current = std::env::current_dir().ok()?;
     loop {
@@ -295,18 +558,7 @@ fn find_repo_root() -> Option<PathBuf> {
 }
 
 fn skills_root_candidates(work_dir: &Path) -> Vec<PathBuf> {
-    let home = home_dir();
-    vec![
-        home.join(".config/agents/skills"),
-        home.join(".agents/skills"),
-        home.join(".kimi/skills"),
-        home.join(".claude/skills"),
-        home.join(".codex/skills"),
-        work_dir.join(".agents/skills"),
-        work_dir.join(".kimi/skills"),
-        work_dir.join(".claude/skills"),
-        work_dir.join(".codex/skills"),
-    ]
+    vec![work_dir.join(".kimicodegui/skills")]
 }
 
 fn parse_skill_frontmatter(contents: &str) -> (Option<String>, Option<String>) {
@@ -496,6 +748,65 @@ fn extract_session_title(wire_file: &Path) -> Option<String> {
     None
 }
 
+fn load_cowork_history_entries() -> Result<Vec<CoworkHistoryEntry>, String> {
+    let path = cowork_history_path();
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw = read_text(&path)?;
+    let mut entries: Vec<CoworkHistoryEntry> =
+        serde_json::from_str(&raw).map_err(|error| format!("Invalid cowork history JSON: {error}"))?;
+    entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    Ok(entries)
+}
+
+fn save_cowork_history_entries(entries: &[CoworkHistoryEntry]) -> Result<(), String> {
+    let path = cowork_history_path();
+    let raw = serde_json::to_string_pretty(entries)
+        .map_err(|error| format!("Failed to encode cowork history JSON: {error}"))?;
+    write_text(&path, &raw)
+}
+
+#[tauri::command]
+fn cowork_history_load() -> Result<Vec<CoworkHistoryEntry>, String> {
+    load_cowork_history_entries()
+}
+
+#[tauri::command]
+fn cowork_history_upsert(entry: CoworkHistoryEntry) -> Result<(), String> {
+    if entry.id.trim().is_empty() {
+        return Err("History entry id cannot be empty".to_string());
+    }
+
+    let mut entries = load_cowork_history_entries()?;
+    if let Some(index) = entries.iter().position(|item| item.id == entry.id) {
+        entries[index] = entry;
+    } else {
+        entries.push(entry);
+    }
+
+    entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    entries.dedup_by(|a, b| a.id == b.id);
+    if entries.len() > 500 {
+        entries.truncate(500);
+    }
+
+    save_cowork_history_entries(&entries)
+}
+
+#[tauri::command]
+fn cowork_history_delete(entry_id: String) -> Result<(), String> {
+    let id = entry_id.trim();
+    if id.is_empty() {
+        return Err("History entry id cannot be empty".to_string());
+    }
+
+    let mut entries = load_cowork_history_entries()?;
+    entries.retain(|item| item.id != id);
+    save_cowork_history_entries(&entries)
+}
+
 #[tauri::command]
 fn app_info() -> AppInfo {
     AppInfo {
@@ -621,6 +932,7 @@ fn gui_settings_load(path: Option<String>) -> Result<GuiSettingsPayload, String>
     let raw = read_text(&path)?;
     let settings: GuiSettings =
         serde_json::from_str(&raw).map_err(|error| format!("Invalid GUI settings: {error}"))?;
+    let settings = normalize_gui_settings_paths(settings);
     Ok(GuiSettingsPayload {
         path: path.to_string_lossy().to_string(),
         settings,
@@ -637,9 +949,7 @@ fn gui_settings_save(path: Option<String>, settings: GuiSettings) -> Result<(), 
 
 #[tauri::command]
 fn skills_list(work_dir: Option<String>, skills_dir: Option<String>) -> Result<SkillsPayload, String> {
-    let work_dir = work_dir
-        .map(PathBuf::from)
-        .unwrap_or_else(|| find_repo_root().unwrap_or_else(|| PathBuf::from(".")));
+    let work_dir = work_dir.map(PathBuf::from);
 
     let mut roots = Vec::new();
     if let Some(skills_dir) = skills_dir {
@@ -648,9 +958,15 @@ fn skills_list(work_dir: Option<String>, skills_dir: Option<String>) -> Result<S
             roots.push(root);
         }
     } else {
-        for root in skills_root_candidates(&work_dir) {
-            if root.is_dir() {
-                roots.push(root);
+        let global_root = kimi_share_dir().join("skills");
+        if global_root.is_dir() {
+            roots.push(global_root);
+        }
+        if let Some(work_dir) = work_dir {
+            for root in skills_root_candidates(&work_dir) {
+                if root.is_dir() {
+                    roots.push(root);
+                }
             }
         }
     }
@@ -853,6 +1169,108 @@ fn session_delete(
     Ok(())
 }
 
+#[derive(Clone, Serialize)]
+pub struct CoworkStreamEvent {
+    pub event: String,
+    pub data: serde_json::Value,
+}
+
+#[tauri::command]
+async fn cowork_stream(
+    window: tauri::Window,
+    state: tauri::State<'_, AppState>,
+    session_id: String,
+    prompt: String,
+    folder: String,
+    model: String,
+    system_prompt: String,
+) -> Result<(), String> {
+
+    
+    // Load auth config
+    let auth_config = load_auth_config();
+    
+    // Get cancel channel
+    let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
+    {
+        let mut sessions = state.sessions.lock()
+            .map_err(|_| "Session store poisoned".to_string())?;
+        let stream_id = state.next_id.fetch_add(1, Ordering::Relaxed);
+        sessions.insert(stream_id, SessionHandle { cancel_tx });
+    }
+    
+    // Use YOLO mode for cowork (auto-approve most tools)
+    let auto_approve = true;
+    
+    // Wrap the window to emit to cowork://event instead of chat://event
+    let window_clone = window.clone();
+    
+    // Call the existing stream_chat but intercept events
+    // For simplicity, we'll emit a step event at the start
+    let _ = window.emit(
+        "cowork://event",
+        CoworkStreamEvent {
+            event: "step".to_string(),
+            data: serde_json::json!({
+                "title": "Starting task",
+                "description": prompt.clone(),
+            }),
+        },
+    );
+    
+    // Use the same underlying LLM call but with cowork-specific system prompt
+    let config_path = Some(app_paths().config);
+    
+    let policy = agent_browser_policy(&window.app_handle());
+    let combined_prompt = if system_prompt.trim().is_empty() {
+        policy
+    } else {
+        format!("{system_prompt}\n\n{policy}")
+    };
+    let extra_system_prompt = Some(combined_prompt);
+
+    let result = llm::stream_chat(
+        window_clone.clone(),
+        state.clone(),
+        session_id.clone(),
+        prompt,
+        model,
+        folder,
+        config_path,
+        "cowork://event",
+        extra_system_prompt,
+        auto_approve,
+        auth_config,
+        cancel_rx,
+    ).await;
+    
+    // Emit completion event
+    match &result {
+        Ok(_) => {
+            let _ = window.emit(
+                "cowork://event",
+                CoworkStreamEvent {
+                    event: "done".to_string(),
+                    data: serde_json::json!({}),
+                },
+            );
+        }
+        Err(e) => {
+            let _ = window.emit(
+                "cowork://event",
+                CoworkStreamEvent {
+                    event: "error".to_string(),
+                    data: serde_json::json!({
+                        "message": e.to_string(),
+                    }),
+                },
+            );
+        }
+    }
+    
+    result
+}
+
 #[tauri::command]
 async fn chat_stream(
     window: tauri::Window,
@@ -869,8 +1287,10 @@ async fn chat_stream(
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| "kimi-k2.5".to_string());
     
-    let work_dir = settings.work_dir
-        .unwrap_or_else(|| app_paths().work_dir);
+    let work_dir = settings
+        .work_dir
+        .filter(|path| !path.trim().is_empty())
+        .unwrap_or_else(|| ".".to_string());
 
     let config_path = settings
         .config_file
@@ -924,6 +1344,8 @@ async fn chat_stream(
         model,
         work_dir.clone(),
         config_path,
+        "chat://event",
+        Some(agent_browser_policy(&window.app_handle())),
         auto_approve,
         auth_config,
         cancel_rx,
@@ -1245,6 +1667,8 @@ fn write_file(work_dir: String, file_path: String, content: String) -> Result<()
 }
 
 fn main() {
+    let _ = migrate_legacy_kimi_share_dir();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
@@ -1266,10 +1690,15 @@ fn main() {
             auth_set_config,
             auth_set_api_key,
             auth_clear,
+            agent_browser_status,
+            cowork_history_load,
+            cowork_history_upsert,
+            cowork_history_delete,
             session_messages,
             session_save_message,
             session_delete,
             chat_stream,
+            cowork_stream,
             cancel_chat,
             list_files,
             read_file,

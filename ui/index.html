@@ -23,26 +23,71 @@
     <div class="app">
       <!-- Sidebar -->
       <aside class="sidebar">
-        <!-- New Session -->
-        <button class="new-session" id="btn-new-session">
-          <svg viewBox="0 0 24 24" width="16" height="16">
-            <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-          </svg>
-          <span>New session</span>
-        </button>
-
-        <!-- Sessions -->
-        <div class="sessions-header">
-          <span>Sessions</span>
-          <button class="icon-btn" id="btn-edit-sessions" title="Edit sessions">
+        <!-- Mode Switcher Tabs -->
+        <div class="mode-tabs" id="mode-tabs">
+          <button class="mode-tab active" data-mode="code">
             <svg viewBox="0 0 24 24" width="14" height="14">
-              <path d="M12 20h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-              <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M9 15l2 2 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
+            <span>Code</span>
+          </button>
+          <button class="mode-tab" data-mode="cowork">
+            <svg viewBox="0 0 24 24" width="14" height="14">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+              <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span>Ensemble</span>
           </button>
         </div>
-        <div class="sessions-list" id="session-list">
-          <!-- Sessions will be populated here -->
+
+        <!-- Code Mode Sidebar Content -->
+        <div class="sidebar-content code-sidebar" id="code-sidebar">
+          <!-- New Session -->
+          <button class="new-session" id="btn-new-session">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span>New session</span>
+          </button>
+
+          <!-- Sessions -->
+          <div class="sessions-header">
+            <span>Sessions</span>
+            <button class="icon-btn" id="btn-edit-sessions" title="Edit sessions">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M12 20h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <div class="sessions-list" id="session-list">
+            <!-- Sessions will be populated here -->
+          </div>
+        </div>
+
+        <!-- Co-Work Mode Sidebar Content -->
+        <div class="sidebar-content cowork-sidebar hidden" id="cowork-sidebar">
+          <button class="cowork-new-task" id="btn-cowork-new-task">
+            <svg viewBox="0 0 24 24" width="16" height="16">
+              <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+            </svg>
+            <span>New task</span>
+          </button>
+          
+          <div class="sessions-header cowork-sessions-header">
+            <span>Recents</span>
+            <button class="icon-btn" id="btn-edit-cowork" title="Edit recents">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M12 20h9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+          <div class="cowork-task-list" id="cowork-task-list">
+            <!-- Tasks will be populated here -->
+          </div>
         </div>
 
         <!-- User / Login -->
@@ -78,8 +123,6 @@
             </div>
             <span class="logo-code">Code</span>
           </div>
-          
-          <div class="preview-badge">Preview</div>
 
           <!-- Controls Row -->
           <div class="controls-row">
@@ -234,8 +277,118 @@
             </div>
           </div>
         </div>
+
+        <!-- Co-Work View -->
+        <div class="cowork-view hidden" id="cowork-view">
+          <!-- Login Prompt (shown when not logged in) -->
+          <div class="cowork-login-prompt" id="cowork-login-prompt">
+            <div class="logo cowork-brand">
+              <div class="logo-pill">
+                <svg class="logo-kimi" viewBox="0 0 55 24" xmlns="http://www.w3.org/2000/svg">
+                  <title>Kimi</title>
+                  <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M13.998 2h4.277L15.76 7.645a3.9 3.9 0 01-2.297 2.104h2.1v.01a3.834 3.834 0 013.548 3.83V22h-3.825V11.852a2.99 2.99 0 01-2.713 1.736H5.825V22H2V2.035h3.825v7.714h4.787L13.998 2zM25.93 2h-3.815v20h3.815V2zm23.468 0h3.815v20h-3.815V2zM28.936 22V2h3.855l4.888 7.828L42.557 2h3.836v20h-3.815V9.183l-4.896 7.855-4.93-7.898V22h-3.816z"></path>
+                </svg>
+              </div>
+              <span class="logo-code">Ensemble</span>
+            </div>
+            <p>Connect to Kimi to start working with AI</p>
+            <button class="cowork-login-btn" id="btn-cowork-login">Get Started</button>
+          </div>
+          
+          <!-- Empty State -->
+          <div class="cowork-empty hidden" id="cowork-empty">
+            <div class="logo cowork-brand">
+              <div class="logo-pill">
+                <svg class="logo-kimi" viewBox="0 0 55 24" xmlns="http://www.w3.org/2000/svg">
+                  <title>Kimi</title>
+                  <path fill="currentColor" fill-rule="evenodd" clip-rule="evenodd" d="M13.998 2h4.277L15.76 7.645a3.9 3.9 0 01-2.297 2.104h2.1v.01a3.834 3.834 0 013.548 3.83V22h-3.825V11.852a2.99 2.99 0 01-2.713 1.736H5.825V22H2V2.035h3.825v7.714h4.787L13.998 2zM25.93 2h-3.815v20h3.815V2zm23.468 0h3.815v20h-3.815V2zM28.936 22V2h3.855l4.888 7.828L42.557 2h3.836v20h-3.815V9.183l-4.896 7.855-4.93-7.898V22h-3.816z"></path>
+                </svg>
+              </div>
+              <span class="logo-code">Ensemble</span>
+            </div>
+            
+            <div class="cowork-quick-tasks">
+              <div class="cowork-quick-header">
+                <svg viewBox="0 0 24 24" width="16" height="16">
+                  <path d="M4 7V4h3M4 17v3h3M20 7V4h-3M20 17v3h-3M9 9h6v6H9z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+                <span>Pick a task, any task</span>
+              </div>
+              <div class="cowork-task-cards">
+                <button class="cowork-task-card" data-prompt="Organize my Downloads folder by file type and date">
+                  <svg viewBox="0 0 24 24" width="20" height="20">
+                    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M12 6v6l4 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  <span>Organize my Downloads folder</span>
+                </button>
+                <button class="cowork-task-card" data-prompt="Check flight status">
+                  <svg viewBox="0 0 24 24" width="20" height="20">
+                    <rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M3 10h18" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M8 14h.01M8 18h.01M12 14h6M12 18h6" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  <span>Check flight status</span>
+                </button>
+                <button class="cowork-task-card" data-prompt="Help me visualize the data in this folder">
+                  <svg viewBox="0 0 24 24" width="20" height="20">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                    <path d="M16 13H8M16 17H8M10 9H8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                  </svg>
+                  <span>Help me visualize data</span>
+                </button>
+              </div>
+            </div>
+            
+            <div class="cowork-input-area">
+              <div class="cowork-input-box">
+                <textarea id="cowork-input" placeholder="How can I help you today?" rows="3"></textarea>
+                <div class="cowork-input-actions">
+                  <div class="cowork-input-left">
+                    <button class="cowork-tool-btn" id="btn-cowork-folder" title="Select folder">
+                      <svg viewBox="0 0 24 24" width="18" height="18">
+                        <path d="M4 7h6l2 2h8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                      </svg>
+                      <span id="cowork-folder-label">Work in a folder</span>
+                    </button>
+                  </div>
+                  <div class="cowork-input-right">
+                    <select class="cowork-model-select" id="cowork-model-select">
+                      <option value="kimi-k2.5">Kimi K2.5</option>
+                    </select>
+                    <button class="cowork-send-btn" id="btn-cowork-send">
+                      <span>Let's go</span>
+                      <svg viewBox="0 0 24 24" width="16" height="16">
+                        <path d="M5 12h14M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <!-- Active Task View -->
+          <div class="cowork-task-view hidden" id="cowork-task-view">
+            <div class="cowork-task-header">
+              <div class="cowork-task-status">
+                <span class="cowork-status-indicator running"></span>
+                <span id="cowork-task-status-text">Running</span>
+              </div>
+              <button class="cowork-task-close" id="btn-cowork-close-task">
+                <svg viewBox="0 0 24 24" width="18" height="18">
+                  <path d="M18 6L6 18M6 6l12 12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+            </div>
+            <div class="cowork-task-content" id="cowork-task-content">
+              <!-- Task execution content -->
+            </div>
+          </div>
+        </div>
       </main>
-      
+
       <!-- File Explorer Sidebar -->
       <aside class="file-explorer" id="file-explorer">
       <div class="file-explorer-header">
@@ -295,11 +448,11 @@
             </div>
             <div class="setting-group">
               <label>Config File</label>
-              <input type="text" id="setting-config" placeholder="~/.kimi/config.toml" />
+              <input type="text" id="setting-config" placeholder="~/.kimicodegui/config.toml" />
             </div>
           <div class="setting-group">
               <label>MCP Config</label>
-              <input type="text" id="setting-mcp" placeholder="~/.kimi/mcp.json" />
+              <input type="text" id="setting-mcp" placeholder="~/.kimicodegui/mcp.json" />
             </div>
             <div class="setting-group">
               <label class="checkbox-label">

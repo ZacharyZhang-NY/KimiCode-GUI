@@ -60,7 +60,7 @@ impl SessionManager {
     pub fn new() -> Self {
         let data_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".kimi")
+            .join(".kimicodegui")
             .join("gui_sessions");
         
         // Ensure directory exists
@@ -320,7 +320,7 @@ impl SessionManager {
         
         let share_dir = dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
-            .join(".kimi");
+            .join(".kimicodegui");
         
         let session_dir = share_dir
             .join("sessions")

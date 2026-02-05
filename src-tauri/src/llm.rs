@@ -15,6 +15,10 @@ pub struct StreamEvent {
 
 const MAX_TOOL_STEPS: usize = 20;
 
+fn emit_stream_event(window: &tauri::Window, event_target: &str, event: StreamEvent) {
+    let _ = window.emit(event_target, event);
+}
+
 fn api_base_url() -> String {
     std::env::var("KIMI_CODE_BASE_URL")
         .or_else(|_| std::env::var("KIMI_BASE_URL"))
@@ -95,7 +99,7 @@ fn load_agents_md(work_dir: &str) -> Option<String> {
     None
 }
 
-fn generate_system_prompt(work_dir: &str) -> String {
+fn generate_system_prompt(work_dir: &str, extra: Option<&str>) -> String {
     let mut prompt = String::new();
     
     // Add directory listing
@@ -112,6 +116,15 @@ fn generate_system_prompt(work_dir: &str) -> String {
         prompt.push('\n');
     }
     
+    if let Some(extra) = extra {
+        let extra = extra.trim();
+        if !extra.is_empty() {
+            prompt.push_str("\nAdditional instructions:\n");
+            prompt.push_str(extra);
+            prompt.push('\n');
+        }
+    }
+
     prompt
 }
 
@@ -129,6 +142,8 @@ pub async fn stream_chat(
     model: String,
     work_dir: String,
     config_path: Option<String>,
+    event_target: &str,
+    extra_system_prompt: Option<String>,
     auto_approve: bool,
     auth_config: crate::AuthConfig,
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
@@ -137,13 +152,17 @@ pub async fn stream_chat(
     let (access_token, api_base) = if auth_config.mode == "api_key" {
         // API Key mode
         let api_key = auth_config.api_key.ok_or_else(|| {
-            let _ = window.emit("chat://event", StreamEvent {
-                event: "error".to_string(),
-                data: serde_json::json!({
-                    "session_id": session_id,
-                    "message": "API key not configured. Please login first.",
-                }),
-            });
+            emit_stream_event(
+                &window,
+                event_target,
+                StreamEvent {
+                    event: "error".to_string(),
+                    data: serde_json::json!({
+                        "session_id": session_id,
+                        "message": "API key not configured. Please login first.",
+                    }),
+                },
+            );
             "API key not configured"
         })?;
         let base = auth_config.api_base
@@ -155,13 +174,17 @@ pub async fn stream_chat(
         match ensure_fresh_token().await {
             Some(token) => (token, api_base_url()),
             None => {
-                let _ = window.emit("chat://event", StreamEvent {
-                    event: "error".to_string(),
-                    data: serde_json::json!({
-                        "session_id": session_id,
-                        "message": "Not logged in. Please login first.",
-                    }),
-                });
+                emit_stream_event(
+                    &window,
+                    event_target,
+                    StreamEvent {
+                        event: "error".to_string(),
+                        data: serde_json::json!({
+                            "session_id": session_id,
+                            "message": "Not logged in. Please login first.",
+                        }),
+                    },
+                );
                 return Err("Not logged in".to_string());
             }
         }
@@ -170,7 +193,7 @@ pub async fn stream_chat(
     let client = reqwest::Client::new();
 
     // Build system prompt with directory context
-    let system_prompt = generate_system_prompt(&work_dir);
+    let system_prompt = generate_system_prompt(&work_dir, extra_system_prompt.as_deref());
     let tools_def = tools::tool_definitions();
     let mut messages = vec![
         serde_json::json!({
@@ -185,8 +208,9 @@ pub async fn stream_chat(
 
     for _ in 0..MAX_TOOL_STEPS {
         if cancel_rx.try_recv().is_ok() {
-            let _ = window.emit(
-                "chat://event",
+            emit_stream_event(
+                &window,
+                event_target,
                 StreamEvent {
                     event: "cancelled".to_string(),
                     data: serde_json::json!({
@@ -214,8 +238,9 @@ pub async fn stream_chat(
 
         let response = tokio::select! {
             _ = &mut cancel_rx => {
-                let _ = window.emit(
-                    "chat://event",
+                emit_stream_event(
+                    &window,
+                    event_target,
                     StreamEvent {
                         event: "cancelled".to_string(),
                         data: serde_json::json!({
@@ -252,8 +277,9 @@ pub async fn stream_chat(
             .and_then(|v| v.as_str())
             .unwrap_or("");
         if !reasoning.is_empty() {
-            let _ = window.emit(
-                "chat://event",
+            emit_stream_event(
+                &window,
+                event_target,
                 StreamEvent {
                     event: "thinking".to_string(),
                     data: serde_json::json!({
@@ -292,8 +318,9 @@ pub async fn stream_chat(
 
                 for tool_call in calls {
                     if cancel_rx.try_recv().is_ok() {
-                        let _ = window.emit(
-                            "chat://event",
+                        emit_stream_event(
+                            &window,
+                            event_target,
                             StreamEvent {
                                 event: "cancelled".to_string(),
                                 data: serde_json::json!({
@@ -330,6 +357,7 @@ pub async fn stream_chat(
                         match request_approval(
                             &window,
                             &state,
+                            event_target,
                             &session_id,
                             &tool_call_id,
                             &name,
@@ -340,8 +368,9 @@ pub async fn stream_chat(
                         {
                             Ok(value) => value,
                             Err(_) => {
-                                let _ = window.emit(
-                                    "chat://event",
+                                emit_stream_event(
+                                    &window,
+                                    event_target,
                                     StreamEvent {
                                         event: "cancelled".to_string(),
                                         data: serde_json::json!({
@@ -360,6 +389,7 @@ pub async fn stream_chat(
                     let output = if approved {
                         emit_tool_status(
                             &window,
+                            event_target,
                             &session_id,
                             &tool_call_id,
                             "start",
@@ -383,6 +413,7 @@ pub async fn stream_chat(
 
                         emit_tool_status(
                             &window,
+                            event_target,
                             &session_id,
                             &tool_call_id,
                             "end",
@@ -396,6 +427,7 @@ pub async fn stream_chat(
                     } else {
                         emit_tool_status(
                             &window,
+                            event_target,
                             &session_id,
                             &tool_call_id,
                             "end",
@@ -412,8 +444,9 @@ pub async fn stream_chat(
                         }
                     };
 
-                    let _ = window.emit(
-                        "chat://event",
+                    emit_stream_event(
+                        &window,
+                        event_target,
                         StreamEvent {
                             event: "tool_result".to_string(),
                             data: serde_json::json!({
@@ -453,8 +486,9 @@ pub async fn stream_chat(
             let total_tokens = usage.get("total_tokens").and_then(|v| v.as_u64())
                 .unwrap_or(prompt_tokens + completion_tokens);
             
-            let _ = window.emit(
-                "chat://event",
+            emit_stream_event(
+                &window,
+                event_target,
                 StreamEvent {
                     event: "chunk".to_string(),
                     data: serde_json::json!({
@@ -463,8 +497,9 @@ pub async fn stream_chat(
                     }),
                 },
             );
-            let _ = window.emit(
-                "chat://event",
+            emit_stream_event(
+                &window,
+                event_target,
                 StreamEvent {
                     event: "done".to_string(),
                     data: serde_json::json!({
@@ -534,6 +569,7 @@ fn needs_approval(tool_name: &str) -> bool {
 
 fn emit_tool_status(
     window: &tauri::Window,
+    event_target: &str,
     session_id: &str,
     tool_call_id: &str,
     state: &str,
@@ -542,8 +578,9 @@ fn emit_tool_status(
     ok: Option<bool>,
     summary: Option<String>,
 ) {
-    let _ = window.emit(
-        "chat://event",
+    emit_stream_event(
+        window,
+        event_target,
         StreamEvent {
             event: "tool_status".to_string(),
             data: serde_json::json!({
@@ -598,6 +635,7 @@ fn tool_label(name: &str, args: &serde_json::Value) -> String {
 async fn request_approval(
     window: &tauri::Window,
     state: &tauri::State<'_, AppState>,
+    event_target: &str,
     session_id: &str,
     tool_call_id: &str,
     name: &str,
@@ -615,8 +653,9 @@ async fn request_approval(
         approvals.insert(request_id.clone(), tx);
     }
 
-    let _ = window.emit(
-        "chat://event",
+    emit_stream_event(
+        window,
+        event_target,
         StreamEvent {
             event: "tool_approval".to_string(),
             data: serde_json::json!({
@@ -649,11 +688,11 @@ async fn execute_tool(
     _window: &tauri::Window,
     _state: &tauri::State<'_, AppState>,
     _session_id: &str,
-    tool_call_id: &str,
+    _tool_call_id: &str,
     name: &str,
     args: &serde_json::Value,
     work_dir: &str,
-    config_path: Option<&str>,
+    _config_path: Option<&str>,
 ) -> tools::ToolOutput {
     match name {
         "ReadFile" => {
@@ -758,40 +797,16 @@ async fn execute_tool(
 
             tools::str_replace_file(work_dir, path, edits)
         }
-        "SearchWeb" => {
-            let query = match args.get("query").and_then(|v| v.as_str()) {
-                Some(q) => q,
-                None => {
-                    return tools::ToolOutput {
-                        ok: false,
-                        summary: "Missing query".to_string(),
-                        output: String::new(),
-                    }
-                }
-            };
-            let limit = args
-                .get("limit")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(5) as usize;
-            let include_content = args
-                .get("include_content")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            tools::search_web(config_path, tool_call_id, query, limit, include_content).await
-        }
-        "FetchURL" => {
-            let url = match args.get("url").and_then(|v| v.as_str()) {
-                Some(u) => u,
-                None => {
-                    return tools::ToolOutput {
-                        ok: false,
-                        summary: "Missing URL".to_string(),
-                        output: String::new(),
-                    }
-                }
-            };
-            tools::fetch_url(config_path, tool_call_id, url).await
-        }
+        "SearchWeb" => tools::ToolOutput {
+            ok: false,
+            summary: "SearchWeb is disabled. Use Shell with agent-browser for internet requests.".to_string(),
+            output: String::new(),
+        },
+        "FetchURL" => tools::ToolOutput {
+            ok: false,
+            summary: "FetchURL is disabled. Use Shell with agent-browser for internet requests.".to_string(),
+            output: String::new(),
+        },
         _ => tools::ToolOutput {
             ok: false,
             summary: format!("Unknown tool: {}", name),

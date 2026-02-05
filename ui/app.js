@@ -6,6 +6,7 @@
   const state = {
     settings: {
       work_dir: null,
+      recent_work_dirs: [],
       config_file: null,
       mcp_config_files: [],
       skills_dir: null,
@@ -13,6 +14,7 @@
       thinking: false,
       yolo: false,
       pinned_sessions: [],
+      pinned_cowork_tasks: [],
     },
     paths: null,
     config: null,
@@ -28,6 +30,7 @@
     models: [],
     user: null,
     isEditingSessions: false,
+    isEditingCoworkTasks: false,
     // File explorer state
     fileTree: null,
     expandedFolders: new Set(),
@@ -36,6 +39,11 @@
     explorerCollapsed: false,
     gitStatus: {},
     fileModified: {},
+    // Co-Work state
+    currentMode: 'code', // 'code' | 'cowork'
+    coworkTasks: [],
+    currentCoworkTask: null,
+    coworkFolder: null,
   };
   
   // Tab types
@@ -43,6 +51,7 @@
     FILE: 'file',
     SESSION: 'session'
   };
+  const MAX_RECENT_WORK_DIRS = 5;
   
   // Autocomplete state
   const autocomplete = {
@@ -166,6 +175,24 @@
       fileViewEditor: $('file-view-editor'),
       fileEditorTextarea: $('file-editor-textarea'),
       fileViewHeader: document.querySelector('.file-view-header'),
+      // Co-Work elements
+      modeTabs: document.querySelectorAll('.mode-tab'),
+      coworkView: $('cowork-view'),
+      coworkLoginPrompt: $('cowork-login-prompt'),
+      coworkEmpty: $('cowork-empty'),
+      coworkTaskView: $('cowork-task-view'),
+      coworkTaskList: $('cowork-task-list'),
+      coworkInput: $('cowork-input'),
+      coworkFolderLabel: $('cowork-folder-label'),
+      coworkModelSelect: $('cowork-model-select'),
+      btnCoworkNewTask: $('btn-cowork-new-task'),
+      btnCoworkSend: $('btn-cowork-send'),
+      btnCoworkFolder: $('btn-cowork-folder'),
+      btnCoworkCloseTask: $('btn-cowork-close-task'),
+      btnCoworkLogin: $('btn-cowork-login'),
+      coworkTaskContent: $('cowork-task-content'),
+      coworkTaskStatusText: $('cowork-task-status-text'),
+      btnEditCowork: $('btn-edit-cowork'),
     };
   }
 
@@ -185,6 +212,13 @@
       
       const payload = await invoke('gui_settings_load', { path: null });
       state.settings = { ...state.settings, ...payload.settings };
+      const recent = Array.isArray(state.settings.recent_work_dirs)
+        ? state.settings.recent_work_dirs
+        : [];
+      state.settings.recent_work_dirs = [];
+      for (const dir of recent) {
+        rememberRecentWorkDir(dir);
+      }
       
       await checkAuthStatus();
       await loadConfig();
@@ -212,18 +246,27 @@
         showLoginPrompt();
       }
       
+      await loadCoworkHistory();
+      
       // Set initial toggle button state
       if (elements.btnToggleExplorer) {
         elements.btnToggleExplorer.classList.toggle('hidden', !state.explorerCollapsed);
       }
       
       initEvents();
+      initModeTabs();
+      initCoworkEvents();
+      
+      // Set initial mode
+      switchMode(state.currentMode);
+      
       updateUI();
       setupMarked();
       
       if (listen) {
         listen('chat://event', handleChatEvent);
         listen('oauth://event', handleOAuthEvent);
+        listen('cowork://event', handleCoworkEvent);
       }
     } catch (err) {
       const message = err?.message || err || 'Initialization failed';
@@ -1108,7 +1151,7 @@
 
   async function loadSessions(allSessions = false) {
     try {
-      const workDir = state.settings.work_dir || state.paths?.work_dir;
+      const workDir = state.settings.work_dir || null;
       // If allSessions is true, pass null to get all sessions
       // Otherwise filter by work_dir
       const sessions = await invoke('session_list', { 
@@ -1138,6 +1181,7 @@
       const models = await invoke('llm_fetch_models', { authConfig: config });
       state.models = models || [];
       renderModels();
+      updateCoworkModelSelect();
     } catch (err) {
       const message = err?.message || err || 'Failed to load models';
       showError(`Failed to load models: ${message}`);
@@ -1318,6 +1362,17 @@
     state.settings.pinned_sessions = list;
   }
 
+  function togglePinnedCoworkTask(taskId) {
+    const list = state.settings.pinned_cowork_tasks || [];
+    const idx = list.indexOf(taskId);
+    if (idx >= 0) {
+      list.splice(idx, 1);
+    } else {
+      list.unshift(taskId);
+    }
+    state.settings.pinned_cowork_tasks = list;
+  }
+
   async function persistSettings() {
     await invoke('gui_settings_save', {
       path: null,
@@ -1325,12 +1380,54 @@
     });
   }
 
+  function normalizeWorkDir(path) {
+    if (!path || typeof path !== 'string') return null;
+    const trimmed = path.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  function rememberRecentWorkDir(path) {
+    const normalized = normalizeWorkDir(path);
+    if (!normalized) return;
+    const current = Array.isArray(state.settings.recent_work_dirs)
+      ? state.settings.recent_work_dirs
+      : [];
+    const deduped = [normalized, ...current.filter(item => item !== normalized)];
+    state.settings.recent_work_dirs = deduped.slice(0, MAX_RECENT_WORK_DIRS);
+  }
+
+  async function applyWorkDir(path, options = {}) {
+    const { reload = true, persist = true } = options;
+    const normalized = normalizeWorkDir(path);
+
+    state.settings.work_dir = normalized;
+    if (normalized) {
+      rememberRecentWorkDir(normalized);
+    }
+
+    updateUI();
+
+    if (reload) {
+      await loadSkills();
+      await loadSessions();
+      await loadFileTree();
+    }
+
+    if (persist) {
+      await persistSettings();
+    }
+  }
+
+  function resolveSessionWorkDir(session = null) {
+    return session?.work_dir || state.settings.work_dir || '.';
+  }
+
   async function deleteSession(sessionId) {
     const session = state.sessions.find(s => s.id === sessionId);
     if (!session) return;
     try {
       await invoke('session_delete', {
-        workDir: session.work_dir,
+        workDir: resolveSessionWorkDir(session),
         sessionId: session.id
       });
       state.sessions = state.sessions.filter(s => s.id !== sessionId);
@@ -1343,6 +1440,29 @@
       await persistSettings();
     } catch (err) {
       const message = err?.message || err || 'Failed to delete session';
+      showError(message);
+    }
+  }
+
+  async function deleteCoworkTask(taskId) {
+    const task = state.coworkTasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    try {
+      await invoke('cowork_history_delete', { entryId: task.id });
+      state.coworkTasks = state.coworkTasks.filter(t => t.id !== task.id);
+      state.settings.pinned_cowork_tasks = (state.settings.pinned_cowork_tasks || [])
+        .filter(id => id !== task.id);
+      if (state.currentCoworkTask?.id === task.id) {
+        state.currentCoworkTask = null;
+      }
+      renderCoworkTaskList();
+      if (state.currentMode === 'cowork') {
+        syncCoworkMainView();
+      }
+      await persistSettings();
+    } catch (err) {
+      const message = err?.message || err || 'Failed to delete task';
       showError(message);
     }
   }
@@ -1365,9 +1485,8 @@
     }
     
     state.currentSession = session;
-    if (session.work_dir) {
-      state.settings.work_dir = session.work_dir;
-      updateUI();
+    if (session.work_dir && session.work_dir !== '.') {
+      await applyWorkDir(session.work_dir, { reload: false, persist: true });
     }
     state.messages = [];
     
@@ -1390,7 +1509,7 @@
     toolMessages.clear();
     try {
       const messages = await invoke('session_messages', {
-        workDir: session.work_dir,
+        workDir: resolveSessionWorkDir(session),
         sessionId: session.id
       });
       
@@ -1487,7 +1606,7 @@
     showLoading('Kimi is thinking...');
     
     try {
-      const sessionWorkDir = state.currentSession?.work_dir || state.settings.work_dir || state.paths?.work_dir || null;
+      const sessionWorkDir = resolveSessionWorkDir(state.currentSession);
       await invoke('chat_stream', {
         sessionId: state.currentSession.id,
         message: text,
@@ -1513,8 +1632,7 @@
     const sessionId = generateId();
     const title = prompt.length > 50 ? prompt.slice(0, 47) + '...' : prompt;
     
-    const workDir = state.settings.work_dir || state.paths?.work_dir || null;
-    state.settings.work_dir = workDir;
+    const workDir = resolveSessionWorkDir();
     state.currentSession = {
       id: sessionId,
       title: title,
@@ -1547,7 +1665,7 @@
     showLoading('Kimi is thinking...');
     
     try {
-      const sessionWorkDir = state.currentSession?.work_dir || state.settings.work_dir || state.paths?.work_dir || null;
+      const sessionWorkDir = resolveSessionWorkDir(state.currentSession);
       await invoke('chat_stream', {
         sessionId: sessionId,
         message: prompt,
@@ -1575,8 +1693,7 @@
     const sessionId = existingTab.path;
     const title = prompt.length > 50 ? prompt.slice(0, 47) + '...' : prompt;
     
-    const workDir = state.settings.work_dir || state.paths?.work_dir || null;
-    state.settings.work_dir = workDir;
+    const workDir = resolveSessionWorkDir();
     state.currentSession = {
       id: sessionId,
       title: title,
@@ -1610,7 +1727,7 @@
     showLoading('Kimi is thinking...');
     
     try {
-      const sessionWorkDir = state.currentSession?.work_dir || state.settings.work_dir || state.paths?.work_dir || null;
+      const sessionWorkDir = resolveSessionWorkDir(state.currentSession);
       await invoke('chat_stream', {
         sessionId: sessionId,
         message: prompt,
@@ -1655,12 +1772,15 @@
         elements.userStatus.appendChild(apiKeyRow);
       } else {
         // OAuth mode - show usage quotas
-        // Weekly usage row
+        const weeklyLabel = 'Weekly';
+        const rateWindowLabel = '5 Hour';
+
+        // Weekly row
         const totalRow = document.createElement('div');
         totalRow.className = 'quota-row';
         totalRow.innerHTML = `
           <div class="quota-header">
-            <span class="quota-label">${state.user.total_label || 'Weekly usage'}</span>
+            <span class="quota-label">${weeklyLabel}</span>
             <span class="quota-reset">${state.user.total_reset || ''}</span>
           </div>
           <div class="quota-main">
@@ -1670,12 +1790,12 @@
         `;
         elements.userStatus.appendChild(totalRow);
         
-        // Rate limit row
+        // Rate limit window row
         const limitRow = document.createElement('div');
         limitRow.className = 'quota-row';
         limitRow.innerHTML = `
           <div class="quota-header">
-            <span class="quota-label">${state.user.limit_label || 'Rate limit'}</span>
+            <span class="quota-label">${rateWindowLabel}</span>
             <span class="quota-reset">${state.user.limit_reset || ''}</span>
           </div>
           <div class="quota-main">
@@ -1746,7 +1866,7 @@
       <p style="text-align: center; color: var(--text-secondary); margin: 24px 0; font-size: 15px; max-width: 320px;">
         Connect to Kimi to start coding with AI
       </p>
-      <button class="btn-primary btn-large" id="btn-welcome-login" style="min-width: 200px;">
+      <button class="cowork-login-btn" id="btn-welcome-login">
         Get Started
       </button>
     `;
@@ -1756,14 +1876,10 @@
     if (loginBtn) {
       loginBtn.addEventListener('click', openLoginModal);
     }
-    
-    // Hide the preview badge and controls row if they exist
-    const previewBadge = elements.emptyState.querySelector('.preview-badge');
-    if (previewBadge) previewBadge.style.display = 'none';
   }
 
   function updateUI() {
-    elements.settingWorkdir.value = state.settings.work_dir || state.paths?.work_dir || '';
+    elements.settingWorkdir.value = state.settings.work_dir || '';
     elements.settingConfig.value = state.settings.config_file || state.paths?.config || '';
     elements.settingMcp.value = (state.settings.mcp_config_files || []).join(', ');
     elements.settingSkills.value = state.settings.skills_dir || '';
@@ -1776,7 +1892,7 @@
       elements.settingApiBase.value = state.authConfig.api_base || '';
     }
     
-    const workDir = state.settings.work_dir || state.paths?.work_dir;
+    const workDir = state.settings.work_dir;
     if (workDir) {
       const parts = workDir.split('/');
       elements.folderLabel.textContent = parts[parts.length - 1] || workDir;
@@ -1901,6 +2017,13 @@
       state.isLoggedIn = false;
       state.authMode = null;
       state.models = [];
+      state.coworkTasks = [];
+      state.currentCoworkTask = null;
+      state.isEditingCoworkTasks = false;
+      if (elements.btnEditCowork) {
+        elements.btnEditCowork.classList.remove('active');
+      }
+      renderCoworkTaskList();
       updateUserBar();
       renderModels();
       showSuccess('Logged out successfully');
@@ -2014,11 +2137,11 @@
         break;
         
       case 'file':
-        if (state.settings.work_dir || state.paths?.work_dir) {
+        if (state.settings.work_dir) {
           try {
-            const workDir = state.settings.work_dir || state.paths.work_dir;
+            const workDir = state.settings.work_dir;
             const files = await invoke('list_files', { 
-              work_dir: workDir, 
+              workDir: workDir, 
               query: query.length > 0 ? query : null 
             });
             suggestions = files.slice(0, 10).map(f => ({
@@ -2167,6 +2290,740 @@
     fetchAndRenderSuggestions();
   }
 
+  // ================================
+  // Co-Work Functions
+  // ================================
+  
+  function initModeTabs() {
+    elements.modeTabs.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const mode = tab.dataset.mode;
+        switchMode(mode);
+      });
+    });
+  }
+
+  function syncCoworkMainView() {
+    if (!state.isLoggedIn) {
+      elements.coworkLoginPrompt?.classList.remove('hidden');
+      elements.coworkEmpty?.classList.add('hidden');
+      elements.coworkTaskView?.classList.add('hidden');
+      return;
+    }
+
+    elements.coworkLoginPrompt?.classList.add('hidden');
+
+    if (state.currentCoworkTask) {
+      const active = state.coworkTasks.find(task => task.id === state.currentCoworkTask.id);
+      if (active) {
+        state.currentCoworkTask = active;
+        elements.coworkEmpty?.classList.add('hidden');
+        elements.coworkTaskView?.classList.remove('hidden');
+        const hasRenderedSteps = elements.coworkTaskContent?.querySelector('.cowork-step');
+        if (!hasRenderedSteps) {
+          renderCoworkTaskDetails(active);
+        }
+        updateCoworkTaskStatus(active);
+        return;
+      }
+      state.currentCoworkTask = null;
+    }
+
+    elements.coworkEmpty?.classList.remove('hidden');
+    elements.coworkTaskView?.classList.add('hidden');
+  }
+  
+  function switchMode(mode) {
+    state.currentMode = mode;
+    
+    // Update tab styles
+    elements.modeTabs.forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.mode === mode);
+    });
+    
+    // Toggle sidebar content
+    const codeSidebar = document.getElementById('code-sidebar');
+    const coworkSidebar = document.getElementById('cowork-sidebar');
+    
+    if (!codeSidebar || !coworkSidebar) {
+      console.error('Sidebar elements not found');
+      return;
+    }
+    
+    // Update app container class for layout
+    elements.appContainer.classList.toggle('cowork-mode', mode === 'cowork');
+    
+    if (mode === 'cowork') {
+      // Switch to Co-Work sidebar
+      codeSidebar.classList.add('hidden');
+      coworkSidebar.classList.remove('hidden');
+      
+      // Show Co-Work main view
+      elements.coworkView.classList.remove('hidden');
+      syncCoworkMainView();
+      
+      // Hide Code mode elements
+      elements.emptyState.classList.add('hidden');
+      elements.chatView.classList.add('hidden');
+      elements.fileView.classList.add('hidden');
+      elements.tabBar.classList.add('hidden');
+    } else {
+      // Switch to Code sidebar
+      codeSidebar.classList.remove('hidden');
+      coworkSidebar.classList.add('hidden');
+      
+      // Hide Co-Work view
+      elements.coworkView.classList.add('hidden');
+      
+      // Show appropriate Code view
+      if (state.currentSession) {
+        elements.chatView.classList.remove('hidden');
+        elements.tabBar.classList.remove('hidden');
+      } else if (state.openTabs.length > 0) {
+        elements.fileView.classList.remove('hidden');
+        elements.tabBar.classList.remove('hidden');
+      } else {
+        elements.emptyState.classList.remove('hidden');
+      }
+      
+      // Show file explorer if logged in and not collapsed
+      if (state.isLoggedIn && !state.explorerCollapsed) {
+        elements.fileExplorer.classList.remove('hidden');
+      }
+    }
+  }
+
+  function normalizeCoworkTask(raw) {
+    if (!raw || !raw.id || !raw.prompt) return null;
+    const steps = Array.isArray(raw.steps)
+      ? raw.steps.map(step => ({
+          title: step?.title || 'Working...',
+          description: step?.description || '',
+          log: step?.log || '',
+          status: step?.status || 'running',
+        }))
+      : [];
+    return {
+      id: raw.id,
+      prompt: raw.prompt,
+      status: raw.status || 'completed',
+      folder: raw.folder || null,
+      createdAt: Number(raw.createdAt || Date.now()),
+      updatedAt: Number(raw.updatedAt || raw.createdAt || Date.now()),
+      steps,
+    };
+  }
+
+  function coworkTaskToPayload(task) {
+    return {
+      id: task.id,
+      prompt: task.prompt,
+      status: task.status || 'completed',
+      folder: task.folder || null,
+      createdAt: Number(task.createdAt || Date.now()),
+      updatedAt: Number(task.updatedAt || Date.now()),
+      steps: Array.isArray(task.steps)
+        ? task.steps.map(step => ({
+            title: step?.title || 'Working...',
+            description: step?.description || '',
+            log: step?.log || '',
+            status: step?.status || 'running',
+          }))
+        : [],
+    };
+  }
+
+  async function loadCoworkHistory() {
+    if (!state.isLoggedIn) {
+      state.coworkTasks = [];
+      state.currentCoworkTask = null;
+      state.settings.pinned_cowork_tasks = [];
+      renderCoworkTaskList();
+      return;
+    }
+
+    try {
+      const entries = await invoke('cowork_history_load');
+      const activeId = state.currentCoworkTask?.id || null;
+      const tasks = (entries || [])
+        .map(normalizeCoworkTask)
+        .filter(Boolean)
+        .sort((a, b) => b.updatedAt - a.updatedAt);
+      state.coworkTasks = tasks;
+      const validIds = new Set(tasks.map(task => task.id));
+      state.settings.pinned_cowork_tasks = (state.settings.pinned_cowork_tasks || [])
+        .filter(id => validIds.has(id));
+      state.currentCoworkTask = activeId
+        ? tasks.find(task => task.id === activeId) || null
+        : null;
+      renderCoworkTaskList();
+      if (state.currentMode === 'cowork') {
+        syncCoworkMainView();
+      }
+    } catch (err) {
+      console.warn('Failed to load cowork history:', err);
+      state.coworkTasks = [];
+      state.currentCoworkTask = null;
+      renderCoworkTaskList();
+    }
+  }
+
+  async function saveCoworkTask(task) {
+    if (!task?.id) return;
+    try {
+      await invoke('cowork_history_upsert', {
+        entry: coworkTaskToPayload(task),
+      });
+    } catch (err) {
+      console.warn('Failed to save cowork task:', err);
+    }
+  }
+
+  function renderCoworkTaskDetails(task) {
+    if (!elements.coworkTaskContent || !task) return;
+    const steps = Array.isArray(task.steps) ? task.steps : [];
+    if (steps.length === 0) {
+      const folderLine = task.folder && task.folder !== '.'
+        ? `<div class="cowork-step-desc">Folder: ${escapeHtml(task.folder)}</div>`
+        : '';
+      elements.coworkTaskContent.innerHTML = `
+        <div class="cowork-step" data-step-index="0">
+          <div class="cowork-step-icon ${task.status === 'completed' ? 'completed' : 'running'}">
+            <svg viewBox="0 0 24 24" width="14" height="14">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="cowork-step-content">
+            <div class="cowork-step-title">Task</div>
+            <div class="cowork-step-desc">${escapeHtml(task.prompt)}</div>
+            ${folderLine}
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    elements.coworkTaskContent.innerHTML = steps.map((step, index) => {
+      const statusClass = step.status === 'completed' ? 'completed' : 'running';
+      const logBlock = step.log
+        ? `<div class="cowork-step-log">${escapeHtml(step.log)}</div>`
+        : '';
+      return `
+        <div class="cowork-step" data-step-index="${index}">
+          <div class="cowork-step-icon ${statusClass}">
+            <svg viewBox="0 0 24 24" width="14" height="14">
+              <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+            </svg>
+          </div>
+          <div class="cowork-step-content">
+            <div class="cowork-step-title">${escapeHtml(step.title || 'Working...')}</div>
+            <div class="cowork-step-desc">${escapeHtml(step.description || '')}</div>
+            ${logBlock}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+  
+  function initCoworkEvents() {
+    // Login button in Co-Work mode
+    if (elements.btnCoworkLogin) {
+      elements.btnCoworkLogin.addEventListener('click', () => {
+        openLoginModal();
+      });
+    }
+    
+    // New task button
+    if (elements.btnCoworkNewTask) {
+      elements.btnCoworkNewTask.addEventListener('click', () => {
+        showCoworkEmpty();
+      });
+    }
+    
+    // Send button
+    if (elements.btnCoworkSend) {
+      elements.btnCoworkSend.addEventListener('click', () => {
+        const prompt = elements.coworkInput.value.trim();
+        if (prompt) {
+          startCoworkTask(prompt);
+        }
+      });
+    }
+    
+    // Enter key in cowork input
+    if (elements.coworkInput) {
+      elements.coworkInput.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          const prompt = elements.coworkInput.value.trim();
+          if (prompt) {
+            startCoworkTask(prompt);
+          }
+        }
+      });
+    }
+    
+    // Quick task cards
+    document.querySelectorAll('.cowork-task-card').forEach(card => {
+      card.addEventListener('click', () => {
+        const prompt = card.dataset.prompt;
+        if (prompt) {
+          elements.coworkInput.value = prompt;
+          elements.coworkInput.focus();
+          const end = elements.coworkInput.value.length;
+          elements.coworkInput.setSelectionRange(end, end);
+        }
+      });
+    });
+    
+    // Folder selection
+    if (elements.btnCoworkFolder) {
+      elements.btnCoworkFolder.addEventListener('click', async () => {
+        try {
+          const path = await invoke('pick_folder');
+          if (path) {
+            state.coworkFolder = path;
+            const parts = path.split('/');
+            elements.coworkFolderLabel.textContent = parts[parts.length - 1] || path;
+          }
+        } catch (err) {
+          showError('Failed to pick folder: ' + (err?.message || err));
+        }
+      });
+    }
+    
+    // Close task
+    if (elements.btnCoworkCloseTask) {
+      elements.btnCoworkCloseTask.addEventListener('click', () => {
+        showCoworkEmpty();
+      });
+    }
+    
+    // Populate model select
+    if (elements.coworkModelSelect) {
+      // Will be populated when models are loaded
+      updateCoworkModelSelect();
+    }
+  }
+  
+  function updateCoworkModelSelect() {
+    if (!elements.coworkModelSelect || !state.models.length) return;
+    
+    elements.coworkModelSelect.innerHTML = state.models.map(m => 
+      `<option value="${m.id}">${m.id}</option>`
+    ).join('');
+    
+    // Set current model if available
+    if (state.settings.model) {
+      elements.coworkModelSelect.value = state.settings.model;
+    }
+  }
+  
+  function showCoworkEmpty() {
+    elements.coworkEmpty.classList.remove('hidden');
+    elements.coworkTaskView.classList.add('hidden');
+    state.currentCoworkTask = null;
+    renderCoworkTaskList();
+    if (elements.coworkInput) {
+      elements.coworkInput.value = '';
+    }
+  }
+  
+  async function startCoworkTask(prompt) {
+    if (!state.isLoggedIn) {
+      showError('Please login first');
+      openLoginModal();
+      return;
+    }
+    
+    const folder = state.coworkFolder || state.settings.work_dir || null;
+    const taskId = generateId();
+    const now = Date.now();
+    const task = {
+      id: taskId,
+      prompt: prompt,
+      status: 'running',
+      folder: folder,
+      createdAt: now,
+      updatedAt: now,
+      steps: [],
+    };
+    
+    state.coworkTasks.unshift(task);
+    state.currentCoworkTask = task;
+    coworkToolSteps.clear();
+    await saveCoworkTask(task);
+    
+    // Add to task list sidebar
+    renderCoworkTaskList();
+    
+    // Show task view
+    elements.coworkEmpty.classList.add('hidden');
+    elements.coworkTaskView.classList.remove('hidden');
+    
+    // Initialize task content
+    elements.coworkTaskContent.innerHTML = '';
+    appendCoworkStep({
+      title: 'Understanding your request',
+      description: prompt,
+      status: 'running',
+    });
+    await saveCoworkTask(task);
+    
+    // Start the task
+    try {
+      await runCoworkTask(task);
+    } catch (err) {
+      console.error('Co-work task error:', err);
+      task.status = 'error';
+      task.updatedAt = Date.now();
+      await saveCoworkTask(task);
+      updateCoworkTaskStatus(task);
+    }
+  }
+  
+  async function runCoworkTask(task) {
+    const folder = task.folder || state.coworkFolder || state.settings.work_dir || '.';
+    const model = elements.coworkModelSelect?.value || state.settings.model || 'kimi-k2.5';
+    let browserStatus = null;
+    try {
+      browserStatus = await invoke('agent_browser_status');
+    } catch (err) {
+      browserStatus = {
+        available: false,
+        command: null,
+        detail: err?.message || 'Failed to detect agent-browser availability.'
+      };
+    }
+    const internetPolicy = browserStatus?.available
+      ? `Internet policy:
+- For any request that needs internet/web pages, use the Shell tool with agent-browser only.
+- Command prefix: ${browserStatus.command}
+- Default flow: open <url> -> snapshot -i -> interact using @eN refs -> re-snapshot after navigation.
+- Do not use SearchWeb or FetchURL.`
+      : `Internet policy:
+- For any request that needs internet/web pages, use Shell tool with agent-browser only.
+- agent-browser is currently unavailable (${browserStatus?.detail || 'unknown reason'}).
+- Report the limitation and stop before attempting web access.
+- Do not use SearchWeb or FetchURL.`;
+    
+    // Build a system prompt for autonomous task execution
+    const systemPrompt = `You are an autonomous AI assistant helping with file and computer operations. 
+You can perform multi-step tasks on behalf of the user.
+
+Current working folder: ${folder}
+
+You have access to tools for:
+- File operations (read, write, list, search, organize)
+- Web browsing and research
+- Data processing and analysis
+- System commands (when appropriate)
+
+Think step by step and execute the task autonomously. Always confirm before making destructive changes.
+If you need user input, ask clearly.
+
+${internetPolicy}
+
+Current task: ${task.prompt}`;
+
+    // Use the existing chat stream infrastructure with a special cowork session
+    const sessionId = `cowork-${task.id}`;
+    
+    await invoke('cowork_stream', {
+      sessionId: sessionId,
+      prompt: task.prompt,
+      folder: folder,
+      model: model,
+      systemPrompt: systemPrompt,
+    });
+  }
+  
+  function renderCoworkTaskList() {
+    if (!elements.coworkTaskList) return;
+
+    if (!state.isLoggedIn) {
+      elements.coworkTaskList.innerHTML = '<div style="padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 13px;">Please login to view tasks</div>';
+      return;
+    }
+    
+    if (state.coworkTasks.length === 0) {
+      elements.coworkTaskList.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px;">No tasks yet</div>';
+      return;
+    }
+
+    const pinnedSet = new Set(state.settings.pinned_cowork_tasks || []);
+    const ordered = [
+      ...state.coworkTasks.filter(task => pinnedSet.has(task.id)),
+      ...state.coworkTasks.filter(task => !pinnedSet.has(task.id)),
+    ];
+
+    elements.coworkTaskList.innerHTML = ordered.map(task => {
+      const date = new Date(task.updatedAt || task.createdAt);
+      const timeStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const isActive = state.currentCoworkTask?.id === task.id;
+      const isPinned = pinnedSet.has(task.id);
+      const actionsVisible = state.isEditingCoworkTasks ? 'visible' : '';
+      
+      let statusIcon = '';
+      if (task.status === 'running') {
+        statusIcon = '<span style="color: #3b82f6;">●</span>';
+      } else if (task.status === 'completed') {
+        statusIcon = '<span style="color: #22c55e;">✓</span>';
+      } else if (task.status === 'error') {
+        statusIcon = '<span style="color: #ef4444;">✗</span>';
+      }
+      
+      return `
+        <div class="session-row">
+          <button class="cowork-task-item ${isActive ? 'active' : ''}" data-task-id="${task.id}">
+            <div class="cowork-task-title">${statusIcon} ${escapeHtml(task.prompt.slice(0, 40))}${task.prompt.length > 40 ? '...' : ''}</div>
+            <div class="cowork-task-meta">${timeStr}</div>
+          </button>
+          <div class="session-actions ${actionsVisible}">
+            <button class="session-action pin ${isPinned ? 'active' : ''}" data-id="${task.id}" data-action="pin" title="${isPinned ? 'Unpin' : 'Pin'}">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M12 17v5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                <path d="M9 3h6l1 7-4 4-4-4 1-7Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+                <path d="M8 10h8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+            <button class="session-action delete" data-id="${task.id}" data-action="delete" title="Delete">
+              <svg viewBox="0 0 24 24" width="14" height="14">
+                <path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    // Add click handlers
+    elements.coworkTaskList.querySelectorAll('.cowork-task-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const taskId = item.dataset.taskId;
+        const task = state.coworkTasks.find(t => t.id === taskId);
+        if (task) {
+          state.currentCoworkTask = task;
+          elements.coworkEmpty.classList.add('hidden');
+          elements.coworkTaskView.classList.remove('hidden');
+          renderCoworkTaskDetails(task);
+          updateCoworkTaskStatus(task);
+          renderCoworkTaskList();
+        }
+      });
+    });
+
+    if (state.isEditingCoworkTasks) {
+      $$('.session-action', elements.coworkTaskList).forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const taskId = btn.dataset.id;
+          const action = btn.dataset.action;
+          if (action === 'pin') {
+            togglePinnedCoworkTask(taskId);
+            renderCoworkTaskList();
+            await persistSettings();
+          }
+          if (action === 'delete') {
+            await deleteCoworkTask(taskId);
+          }
+        });
+      });
+    }
+  }
+  
+  function updateCoworkTaskStatus(task) {
+    const activeId = state.currentCoworkTask?.id || null;
+    state.coworkTasks.sort((a, b) => (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+    if (activeId) {
+      state.currentCoworkTask = state.coworkTasks.find(item => item.id === activeId) || null;
+    }
+    const statusSource = state.currentCoworkTask?.id === task.id ? state.currentCoworkTask : task;
+    const statusText = statusSource.status.charAt(0).toUpperCase() + statusSource.status.slice(1);
+    if (elements.coworkTaskStatusText) {
+      elements.coworkTaskStatusText.textContent = statusText;
+    }
+    const indicator = document.querySelector('.cowork-status-indicator');
+    if (indicator) {
+      indicator.classList.remove('running', 'completed', 'error');
+      indicator.classList.add(statusSource.status === 'error' ? 'error' : statusSource.status === 'completed' ? 'completed' : 'running');
+    }
+    renderCoworkTaskList();
+  }
+
+  const coworkToolSteps = new Map();
+
+  function ensureCoworkTaskSteps() {
+    if (!state.currentCoworkTask) return [];
+    if (!Array.isArray(state.currentCoworkTask.steps)) {
+      state.currentCoworkTask.steps = [];
+    }
+    return state.currentCoworkTask.steps;
+  }
+
+  function getStepIndex(stepEl) {
+    if (!stepEl) return -1;
+    return Number(stepEl.dataset.stepIndex ?? -1);
+  }
+
+  function ensureCoworkStep(title, description) {
+    const steps = elements.coworkTaskContent?.querySelectorAll('.cowork-step');
+    if (!steps || steps.length === 0) {
+      return appendCoworkStep({ title, description });
+    }
+    return steps[steps.length - 1];
+  }
+
+  function setCoworkStepStatus(stepEl, status) {
+    if (!stepEl) return;
+    const icon = stepEl.querySelector('.cowork-step-icon');
+    if (!icon) return;
+    icon.classList.remove('running', 'completed');
+    if (status === 'completed') {
+      icon.classList.add('completed');
+    } else {
+      icon.classList.add('running');
+    }
+    const stepIndex = getStepIndex(stepEl);
+    const steps = ensureCoworkTaskSteps();
+    if (stepIndex >= 0 && steps[stepIndex]) {
+      steps[stepIndex].status = status;
+    }
+  }
+  
+  function handleCoworkEvent(event) {
+    const { event: eventType, data } = event.payload;
+    
+    if (!state.currentCoworkTask) return;
+
+    if (data?.session_id) {
+      const expectedSessionId = `cowork-${state.currentCoworkTask.id}`;
+      if (data.session_id !== expectedSessionId) return;
+    }
+    
+    switch (eventType) {
+      case 'step':
+        appendCoworkStep(data);
+        break;
+      case 'log':
+        appendCoworkLog(data);
+        break;
+      case 'thinking': {
+        const stepEl = ensureCoworkStep('Thinking', '');
+        appendCoworkLog({ content: data?.content || '' }, stepEl);
+        break;
+      }
+      case 'chunk': {
+        const stepEl = ensureCoworkStep('Output', '');
+        appendCoworkLog({ content: data?.content || '' }, stepEl);
+        break;
+      }
+      case 'tool_status': {
+        const toolCallId = data?.tool_call_id;
+        if (!toolCallId) break;
+        if (data?.state === 'start') {
+          const stepEl = appendCoworkStep({
+            title: data?.label || data?.name || 'Tool',
+            description: '',
+          });
+          coworkToolSteps.set(toolCallId, stepEl);
+        } else if (data?.state === 'end') {
+          const stepEl = coworkToolSteps.get(toolCallId);
+          if (data?.summary) {
+            appendCoworkLog({ content: data.summary }, stepEl);
+          }
+          if (stepEl && data?.ok !== false) {
+            setCoworkStepStatus(stepEl, 'completed');
+          }
+        }
+        break;
+      }
+      case 'tool_result': {
+        const toolCallId = data?.tool_call_id;
+        if (!toolCallId) break;
+        const stepEl = coworkToolSteps.get(toolCallId);
+        if (data?.summary) {
+          appendCoworkLog({ content: data.summary }, stepEl);
+        }
+        if (data?.output) {
+          appendCoworkLog({ content: data.output }, stepEl);
+        }
+        break;
+      }
+      case 'done':
+        state.currentCoworkTask.status = 'completed';
+        state.currentCoworkTask.updatedAt = Date.now();
+        saveCoworkTask(state.currentCoworkTask);
+        updateCoworkTaskStatus(state.currentCoworkTask);
+        break;
+      case 'error':
+        appendCoworkStep({
+          title: 'Task failed',
+          description: data?.message || 'Task failed',
+        });
+        state.currentCoworkTask.status = 'error';
+        state.currentCoworkTask.updatedAt = Date.now();
+        saveCoworkTask(state.currentCoworkTask);
+        updateCoworkTaskStatus(state.currentCoworkTask);
+        showError(data?.message || 'Task failed');
+        break;
+    }
+  }
+  
+  function appendCoworkStep(data) {
+    if (!elements.coworkTaskContent) return;
+    const steps = ensureCoworkTaskSteps();
+    const stepData = {
+      title: data?.title || 'Working...',
+      description: data?.description || '',
+      log: '',
+      status: data?.status === 'completed' ? 'completed' : 'running',
+    };
+    steps.push(stepData);
+    const stepIndex = steps.length - 1;
+    
+    const stepEl = document.createElement('div');
+    stepEl.className = 'cowork-step';
+    stepEl.dataset.stepIndex = String(stepIndex);
+    stepEl.innerHTML = `
+      <div class="cowork-step-icon ${stepData.status === 'completed' ? 'completed' : 'running'}">
+        <svg viewBox="0 0 24 24" width="14" height="14">
+          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+        </svg>
+      </div>
+      <div class="cowork-step-content">
+        <div class="cowork-step-title">${escapeHtml(stepData.title)}</div>
+        <div class="cowork-step-desc">${escapeHtml(stepData.description)}</div>
+      </div>
+    `;
+    elements.coworkTaskContent.appendChild(stepEl);
+    elements.coworkTaskContent.scrollTop = elements.coworkTaskContent.scrollHeight;
+    return stepEl;
+  }
+  
+  function appendCoworkLog(data, targetStep) {
+    const steps = elements.coworkTaskContent?.querySelectorAll('.cowork-step');
+    if (!steps || steps.length === 0) return;
+    
+    const lastStep = targetStep || steps[steps.length - 1];
+    let logContainer = lastStep.querySelector('.cowork-step-log');
+    
+    if (!logContainer) {
+      logContainer = document.createElement('div');
+      logContainer.className = 'cowork-step-log';
+      lastStep.querySelector('.cowork-step-content').appendChild(logContainer);
+    }
+    
+    const content = data?.content || '';
+    logContainer.textContent += content;
+    const stepIndex = getStepIndex(lastStep);
+    const taskSteps = ensureCoworkTaskSteps();
+    if (stepIndex >= 0 && taskSteps[stepIndex]) {
+      taskSteps[stepIndex].log = (taskSteps[stepIndex].log || '') + content;
+    }
+    elements.coworkTaskContent.scrollTop = elements.coworkTaskContent.scrollHeight;
+  }
+
   function initEvents() {
     elements.btnNewSession.addEventListener('click', () => {
       createNewSessionTab();
@@ -2177,6 +3034,14 @@
       elements.btnEditSessions.classList.toggle('active', state.isEditingSessions);
       renderSessions();
     });
+
+    if (elements.btnEditCowork) {
+      elements.btnEditCowork.addEventListener('click', () => {
+        state.isEditingCoworkTasks = !state.isEditingCoworkTasks;
+        elements.btnEditCowork.classList.toggle('active', state.isEditingCoworkTasks);
+        renderCoworkTaskList();
+      });
+    }
     elements.btnCloseChat.addEventListener('click', closeChat);
     
     elements.btnSend.addEventListener('click', () => sendMessage(elements.promptInput.value));
@@ -2229,94 +3094,101 @@
       });
     }
     
-    elements.btnFolder.addEventListener('click', () => {
-      elements.folderModal.classList.add('open');
-      
-      const folders = [
-        state.paths?.work_dir,
-        state.settings.work_dir,
-        state.paths?.share_dir
-      ].filter(Boolean);
-      
-      const home = state.paths?.share_dir?.replace('/.kimi', '');
+    const renderFolderPicker = () => {
+      const selected = normalizeWorkDir(state.settings.work_dir);
+      const recent = Array.isArray(state.settings.recent_work_dirs)
+        ? state.settings.recent_work_dirs
+        : [];
+      const folders = [];
+      if (selected) {
+        folders.push(selected);
+      }
+      for (const folder of recent) {
+        const normalized = normalizeWorkDir(folder);
+        if (normalized) {
+          folders.push(normalized);
+        }
+      }
+
+      const home = state.paths?.share_dir?.replace(/[\\/]\.kimicodegui$/, '');
       if (home) {
-        folders.push(home + '/Projects');
-        folders.push(home + '/Code');
+        folders.push(`${home}/Projects`);
+        folders.push(`${home}/Code`);
         folders.push(home);
       }
-      
-      const uniqueFolders = [...new Set(folders)];
-      elements.folderList.innerHTML = uniqueFolders.map(f => `
-        <button class="folder-item" data-folder="${f}">
+
+      const uniqueFolders = [...new Set(folders)].slice(0, MAX_RECENT_WORK_DIRS + 3);
+      const clearSelectedClass = selected ? '' : ' active';
+      const clearItem = `
+        <button class="folder-item folder-item-clear${clearSelectedClass}" data-folder="">
+          <svg viewBox="0 0 24 24" width="16" height="16">
+            <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <path d="M8 12h8" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <span>No folder selected</span>
+        </button>
+      `;
+
+      const folderItems = uniqueFolders.map(folder => `
+        <button class="folder-item${folder === selected ? ' active' : ''}" data-folder="${escapeHtml(folder)}">
           <svg viewBox="0 0 24 24" width="16" height="16">
             <path d="M4 7h6l2 2h8v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
           </svg>
-          <span>${f}</span>
+          <span>${escapeHtml(folder)}</span>
         </button>
       `).join('');
-      
+
+      elements.folderList.innerHTML = clearItem + folderItems;
       $$('.folder-item', elements.folderList).forEach(item => {
-        item.addEventListener('click', () => {
-          state.settings.work_dir = item.dataset.folder;
-          const parts = item.dataset.folder.split('/');
-          elements.folderLabel.textContent = parts[parts.length - 1];
-          updateUI();
+        item.addEventListener('click', async () => {
+          await applyWorkDir(item.dataset.folder || null, { reload: true, persist: true });
           closeModals();
-          loadSkills();
-          loadSessions();
-          loadFileTree();
         });
       });
-      
-      // Add custom folder handler
+    };
+
+    elements.btnFolder.addEventListener('click', () => {
+      elements.folderModal.classList.add('open');
       const customInput = $('custom-folder-input');
-      const addBtn = $('btn-add-custom-folder');
-      
-      if (customInput && addBtn) {
-        addBtn.addEventListener('click', () => {
-          const path = customInput.value.trim();
-          if (path) {
-            state.settings.work_dir = path;
-            const parts = path.split('/');
-            elements.folderLabel.textContent = parts[parts.length - 1] || path;
-            updateUI();
-            closeModals();
-            loadSkills();
-            loadSessions();
-            loadFileTree();
-          }
-        });
-        
-        customInput.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            addBtn.click();
-          }
-        });
-      }
-      
-      // Browse button handler
-      const browseBtn = $('btn-browse-folder');
-      if (browseBtn) {
-        browseBtn.addEventListener('click', async () => {
-          try {
-            const path = await invoke('pick_folder');
-          if (path) {
-            state.settings.work_dir = path;
-            const parts = path.split('/');
-            elements.folderLabel.textContent = parts[parts.length - 1] || path;
-            updateUI();
-            closeModals();
-            loadSkills();
-            loadSessions();
-            loadFileTree();
-          }
-        } catch (err) {
-            const message = err?.message || err || 'Failed to open folder picker';
-            showError(message);
-          }
-        });
-      }
+      if (customInput) customInput.value = '';
+      renderFolderPicker();
     });
+
+    const customInput = $('custom-folder-input');
+    const addBtn = $('btn-add-custom-folder');
+    if (customInput && addBtn) {
+      const applyCustomFolder = async () => {
+        const path = customInput.value.trim();
+        if (!path) return;
+        await applyWorkDir(path, { reload: true, persist: true });
+        customInput.value = '';
+        closeModals();
+      };
+      addBtn.addEventListener('click', applyCustomFolder);
+      customInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          applyCustomFolder();
+        }
+      });
+    }
+
+    const browseBtn = $('btn-browse-folder');
+    if (browseBtn) {
+      browseBtn.addEventListener('click', async () => {
+        try {
+          const path = await invoke('pick_folder');
+          if (!path) return;
+          await applyWorkDir(path, { reload: true, persist: true });
+          const customPathInput = $('custom-folder-input');
+          if (customPathInput) customPathInput.value = '';
+          closeModals();
+        } catch (err) {
+          const message = err?.message || err || 'Failed to open folder picker';
+          showError(message);
+        }
+      });
+    }
     
     elements.btnModel.addEventListener('click', () => {
       elements.modelModal.classList.add('open');
@@ -2400,7 +3272,10 @@
     });
     
     elements.btnSaveSettings.addEventListener('click', async () => {
-      state.settings.work_dir = elements.settingWorkdir.value || null;
+      state.settings.work_dir = normalizeWorkDir(elements.settingWorkdir.value);
+      if (state.settings.work_dir) {
+        rememberRecentWorkDir(state.settings.work_dir);
+      }
       state.settings.config_file = elements.settingConfig.value || null;
       state.settings.mcp_config_files = elements.settingMcp.value
         .split(',').map(s => s.trim()).filter(Boolean);

@@ -50,7 +50,7 @@ fn api_base_url() -> String {
 
 fn credentials_dir() -> PathBuf {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
-    let dir = home.join(".kimi").join("credentials");
+    let dir = home.join(".kimicodegui").join("credentials");
     std::fs::create_dir_all(&dir).ok();
     dir
 }

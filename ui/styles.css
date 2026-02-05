@@ -84,6 +84,19 @@ html, body {
   grid-template-columns: 280px 1fr;
 }
 
+/* Co-Work mode - hide file explorer and use 2-column layout */
+.app.cowork-mode .file-explorer {
+  display: none;
+}
+
+.app.cowork-mode {
+  grid-template-columns: 280px 1fr;
+}
+
+.app.cowork-mode.explorer-collapsed {
+  grid-template-columns: 280px 1fr;
+}
+
 /* Explorer Toggle Button in Main Content */
 .explorer-toggle-btn {
   position: absolute;
@@ -161,6 +174,8 @@ html, body {
   align-items: center;
   justify-content: space-between;
   padding: 0 4px;
+  margin-top: 8px;
+  min-height: 32px;
   font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
@@ -225,6 +240,7 @@ html, body {
   gap: 6px;
   width: 100%;
   min-width: 0;
+  flex-shrink: 0;
   overflow: hidden;
   padding: 4px 0;
 }
@@ -933,6 +949,9 @@ html, body {
   font-family: 'SF Mono', monospace;
   font-size: 12.5px;
   white-space: pre-wrap;
+  max-height: 25vh;
+  overflow-y: auto;
+  overflow-x: auto;
 }
 
 .message.thinking .message-author {
@@ -1121,6 +1140,8 @@ html, body {
   background: var(--surface);
   padding: 12px;
   border-radius: var(--radius-sm);
+  max-height: 25vh;
+  overflow-y: auto;
   overflow-x: auto;
 }
 
@@ -1769,6 +1790,7 @@ html, body {
   align-items: center;
   gap: 12px;
   width: 100%;
+  min-width: 0;
   padding: 12px;
   border: none;
   background: transparent;
@@ -1784,10 +1806,32 @@ html, body {
   background: var(--bg);
 }
 
+.folder-item.active {
+  background: var(--accent-light);
+  color: var(--accent);
+}
+
+.folder-item.active svg {
+  color: var(--accent);
+}
+
+.folder-item.folder-item-clear {
+  border: 1px dashed var(--border);
+  margin-bottom: 8px;
+}
+
 .folder-item svg,
 .model-option svg {
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+.folder-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* ================================
@@ -2066,4 +2110,572 @@ html, body {
 
 .welcome-btn-arrow {
   color: var(--text-muted);
+}
+
+/* ================================
+   Sidebar Content (Code / Co-Work)
+   ================================ */
+
+.sidebar-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.sidebar-content.hidden {
+  display: none !important;
+}
+
+/* ================================
+   Mode Tabs (Code / Co-Work)
+   ================================ */
+
+.mode-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius-md);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.mode-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.mode-tab:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.mode-tab.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.mode-tab svg {
+  color: currentColor;
+}
+
+/* ================================
+   Co-Work View
+   ================================ */
+
+.cowork-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: transparent;
+}
+
+.cowork-view.hidden {
+  display: none !important;
+}
+
+/* Co-Work Sidebar Content */
+.sidebar-content.cowork-sidebar {
+  gap: 0;
+}
+
+.cowork-new-task {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.cowork-new-task:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.cowork-new-task svg {
+  color: var(--text-muted);
+}
+
+.cowork-task-list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  padding-right: 4px;
+}
+
+.cowork-task-item {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: none;
+  background: transparent;
+  text-align: left;
+  width: 100%;
+  font-family: inherit;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.cowork-task-item:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.cowork-task-item.active {
+  background: var(--surface);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.cowork-task-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cowork-task-meta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.cowork-notice {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  padding: 0 8px;
+  margin-top: auto;
+}
+
+/* Co-Work Login Prompt */
+.cowork-login-prompt {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 32px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  gap: 20px;
+}
+
+.cowork-login-prompt.hidden {
+  display: none !important;
+}
+
+.cowork-brand {
+  margin-bottom: 0;
+}
+
+.cowork-login-prompt p {
+  font-size: 15px;
+  color: var(--text-secondary);
+  margin: 24px 0;
+  text-align: center;
+  max-width: 320px;
+}
+
+.cowork-login-btn {
+  padding: 14px 32px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition);
+  min-width: 200px;
+}
+
+.cowork-login-btn:hover {
+  background: var(--accent-hover);
+}
+
+/* Co-Work Empty State */
+.cowork-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  max-width: 720px;
+  width: 100%;
+  margin: 0 auto;
+  gap: 24px;
+}
+
+.cowork-empty.hidden {
+  display: none !important;
+}
+
+.cowork-empty .cowork-brand {
+  margin-bottom: 4px;
+}
+
+.cowork-logo {
+  width: 64px;
+  height: 64px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(135deg, #c75b5b 0%, #d4846c 100%);
+  color: white;
+  border-radius: 16px;
+}
+
+.cowork-logo svg {
+  width: 32px;
+  height: 32px;
+}
+
+/* Quick Tasks */
+.cowork-quick-tasks {
+  width: 100%;
+  max-width: 560px;
+}
+
+.cowork-quick-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.cowork-quick-header svg {
+  color: var(--text-muted);
+}
+
+.cowork-task-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+
+.cowork-task-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: var(--transition);
+  text-align: center;
+}
+
+.cowork-task-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+
+.cowork-task-card svg {
+  color: var(--text-muted);
+}
+
+.cowork-task-card span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  line-height: 1.4;
+}
+
+/* Co-Work Input Area */
+.cowork-input-area {
+  width: 100%;
+  max-width: 560px;
+  margin-top: 16px;
+}
+
+.cowork-input-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.cowork-input-box textarea {
+  width: 100%;
+  padding: 16px;
+  border: none;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text);
+  resize: none;
+  outline: none;
+  font-family: inherit;
+}
+
+.cowork-input-box textarea::placeholder {
+  color: var(--text-muted);
+}
+
+.cowork-input-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+}
+
+.cowork-input-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cowork-input-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cowork-tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.cowork-tool-btn:hover {
+  border-color: var(--border-strong);
+  color: var(--text);
+  background: var(--surface-hover);
+}
+
+.cowork-model-select {
+  padding: 6px 24px 6px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b6b6b' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+}
+
+.cowork-send-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: none;
+  background: #c75b5b;
+  border-radius: var(--radius-md);
+  font-size: 14px;
+  font-weight: 500;
+  color: white;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.cowork-send-btn:hover {
+  background: #b54d4d;
+}
+
+.cowork-send-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Co-Work Task View */
+.cowork-task-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cowork-task-view.hidden {
+  display: none !important;
+}
+
+.cowork-task-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.cowork-task-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.cowork-status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.cowork-status-indicator.running {
+  background: #22c55e;
+  animation: pulse 2s infinite;
+}
+
+.cowork-status-indicator.completed {
+  background: #22c55e;
+}
+
+.cowork-status-indicator.error {
+  background: #ef4444;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.cowork-task-close {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.cowork-task-close:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text);
+}
+
+.cowork-task-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  background: transparent;
+}
+
+/* Task Steps */
+.cowork-step {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.cowork-step-icon {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cowork-step-icon.completed {
+  background: #22c55e;
+  border-color: #22c55e;
+  color: white;
+}
+
+.cowork-step-icon.running {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: white;
+}
+
+.cowork-step-content {
+  flex: 1;
+  padding-top: 4px;
+}
+
+.cowork-step-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.cowork-step-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.cowork-step-log {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: 'SF Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  max-height: 25vh;
+  overflow-y: auto;
+  overflow-x: auto;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .cowork-task-cards {
+    grid-template-columns: 1fr;
+  }
 }

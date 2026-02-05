@@ -22,12 +22,14 @@ pub struct ToolOutput {
     pub output: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SearchResponse {
     #[serde(default)]
     search_results: Vec<SearchResult>,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct SearchResult {
     #[serde(default)]
@@ -42,6 +44,7 @@ struct SearchResult {
     date: String,
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 struct ServiceConfig {
     base_url: String,
@@ -49,14 +52,17 @@ struct ServiceConfig {
     custom_headers: HashMap<String, String>,
 }
 
+#[allow(dead_code)]
 fn home_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
+#[allow(dead_code)]
 fn default_config_path() -> PathBuf {
-    home_dir().join(".kimi").join("config.toml")
+    home_dir().join(".kimicodegui").join("config.toml")
 }
 
+#[allow(dead_code)]
 fn parse_config_content(path: &Path, raw: &str) -> Result<serde_json::Value, String> {
     if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
         serde_json::from_str(raw)
@@ -69,6 +75,7 @@ fn parse_config_content(path: &Path, raw: &str) -> Result<serde_json::Value, Str
     }
 }
 
+#[allow(dead_code)]
 fn load_config_value(config_path: Option<&str>) -> Result<serde_json::Value, String> {
     let path = config_path
         .map(PathBuf::from)
@@ -78,6 +85,7 @@ fn load_config_value(config_path: Option<&str>) -> Result<serde_json::Value, Str
     parse_config_content(&path, &raw)
 }
 
+#[allow(dead_code)]
 fn parse_service_config(value: &serde_json::Value, key: &str) -> Option<ServiceConfig> {
     let services = value.get("services")?;
     let service = services.get(key)?;
@@ -327,36 +335,6 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                         }
                     },
                     "required": ["path", "edit"]
-                }
-            }
-        }),
-        serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "SearchWeb",
-                "description": "Search the web using the configured search service.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "query": { "type": "string", "description": "Search query." },
-                        "limit": { "type": "integer", "description": "Number of results.", "minimum": 1 },
-                        "include_content": { "type": "boolean", "description": "Include page content in results." }
-                    },
-                    "required": ["query"]
-                }
-            }
-        }),
-        serde_json::json!({
-            "type": "function",
-            "function": {
-                "name": "FetchURL",
-                "description": "Fetch the contents of a URL.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "url": { "type": "string", "description": "URL to fetch." }
-                    },
-                    "required": ["url"]
                 }
             }
         }),
@@ -706,6 +684,7 @@ pub fn str_replace_file(
     }
 }
 
+#[allow(dead_code)]
 pub async fn search_web(
     config_path: Option<&str>,
     tool_call_id: &str,
@@ -811,6 +790,7 @@ pub async fn search_web(
     }
 }
 
+#[allow(dead_code)]
 pub async fn fetch_url(
     config_path: Option<&str>,
     tool_call_id: &str,

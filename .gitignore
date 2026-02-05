@@ -5,5 +5,6 @@ dist/
 .DS_Store
 src-tauri/target/
 src-tauri/gen/
+src-tauri/resources/agent-browser/
 authkey.p12.b64
 cert.p12.b64
