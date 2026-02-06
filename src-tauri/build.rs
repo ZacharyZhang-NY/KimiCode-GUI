@@ -1,5 +1,6 @@
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 
 #[cfg(unix)]
@@ -16,6 +17,66 @@ fn find_in_path(names: &[&str]) -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn target_binary_filename(target_os: &str, target_arch: &str) -> Option<String> {
+    let platform = node_platform(target_os)?;
+    let arch = node_arch(target_arch)?;
+    let ext = if target_os == "windows" { ".exe" } else { "" };
+    Some(format!("agent-browser-{platform}-{arch}{ext}"))
+}
+
+fn is_node_wrapper(path: &PathBuf) -> bool {
+    let mut file = match fs::File::open(path) {
+        Ok(file) => file,
+        Err(_) => return false,
+    };
+
+    let mut buf = [0u8; 256];
+    let len = match file.read(&mut buf) {
+        Ok(len) => len,
+        Err(_) => return false,
+    };
+    let head = &buf[..len];
+
+    head.starts_with(b"#!/usr/bin/env node")
+        || head.starts_with(b"#! /usr/bin/env node")
+        || head.starts_with(b"#!/usr/bin/node")
+}
+
+fn normalize_agent_browser_candidate(
+    candidate: PathBuf,
+    target_os: &str,
+    target_arch: &str,
+) -> Option<PathBuf> {
+    if !candidate.is_file() {
+        return None;
+    }
+
+    let Some(expected_name) = target_binary_filename(target_os, target_arch) else {
+        return Some(candidate);
+    };
+
+    let candidate_name = candidate
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string());
+
+    if candidate_name.as_deref() == Some(expected_name.as_str()) {
+        return Some(candidate);
+    }
+
+    // If PATH resolves to the Node launcher script, prefer the sibling native binary.
+    if is_node_wrapper(&candidate) {
+        if let Some(parent) = candidate.parent() {
+            let sibling = parent.join(expected_name);
+            if sibling.is_file() {
+                return Some(sibling);
+            }
+        }
+        return None;
+    }
+
+    Some(candidate)
 }
 
 fn parse_truthy_env(name: &str) -> bool {
@@ -48,16 +109,33 @@ fn node_arch(target_arch: &str) -> Option<&'static str> {
 fn resolve_agent_browser_from_dir(target_os: &str, target_arch: &str) -> Option<PathBuf> {
     let base_dir = env::var_os("AGENT_BROWSER_BIN_DIR")?;
     let base_dir = PathBuf::from(base_dir);
-    let platform = node_platform(target_os)?;
-    let arch = node_arch(target_arch)?;
-
-    let filename = if target_os == "windows" {
-        format!("agent-browser-{platform}-{arch}.exe")
-    } else {
-        format!("agent-browser-{platform}-{arch}")
-    };
+    let filename = target_binary_filename(target_os, target_arch)?;
 
     let candidate = base_dir.join(filename);
+    if candidate.is_file() {
+        Some(candidate)
+    } else {
+        None
+    }
+}
+
+fn resolve_agent_browser_from_local_node_modules(
+    target_os: &str,
+    target_arch: &str,
+) -> Option<PathBuf> {
+    let manifest_dir = env::var_os("CARGO_MANIFEST_DIR")?;
+    let manifest_dir = PathBuf::from(manifest_dir);
+    let filename = target_binary_filename(target_os, target_arch)?;
+
+    let candidate = manifest_dir
+        .parent()
+        .map(PathBuf::from)
+        .unwrap_or(manifest_dir)
+        .join("node_modules")
+        .join("agent-browser")
+        .join("bin")
+        .join(filename);
+
     if candidate.is_file() {
         Some(candidate)
     } else {
@@ -69,7 +147,11 @@ fn resolve_agent_browser_binary(target_os: &str, target_arch: &str) -> Option<Pa
     if let Some(path) = env::var_os("AGENT_BROWSER_BIN") {
         let binary = PathBuf::from(path);
         if binary.is_file() {
-            return Some(binary);
+            if let Some(normalized) =
+                normalize_agent_browser_candidate(binary, target_os, target_arch)
+            {
+                return Some(normalized);
+            }
         }
     }
 
@@ -77,12 +159,24 @@ fn resolve_agent_browser_binary(target_os: &str, target_arch: &str) -> Option<Pa
         return Some(binary);
     }
 
+    if let Some(binary) = resolve_agent_browser_from_local_node_modules(target_os, target_arch) {
+        return Some(binary);
+    }
+
+    let mut dynamic_names: Vec<String> = Vec::new();
+    if let Some(expected) = target_binary_filename(target_os, target_arch) {
+        dynamic_names.push(expected);
+    }
     #[cfg(windows)]
-    let names = ["agent-browser.exe", "agent-browser"];
-    #[cfg(not(windows))]
-    let names = ["agent-browser"];
+    {
+        dynamic_names.push("agent-browser.exe".to_string());
+    }
+    dynamic_names.push("agent-browser".to_string());
+
+    let names: Vec<&str> = dynamic_names.iter().map(|name| name.as_str()).collect();
 
     find_in_path(&names)
+        .and_then(|candidate| normalize_agent_browser_candidate(candidate, target_os, target_arch))
 }
 
 fn prepare_embedded_agent_browser() {
