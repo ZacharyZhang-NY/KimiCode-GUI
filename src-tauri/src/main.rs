@@ -1210,6 +1210,7 @@ async fn cowork_stream(
     // Use the same underlying LLM call but with cowork-specific system prompt
     let config_path = Some(app_paths().config);
 
+    let browser_status = agent_browser_status(window.app_handle().clone());
     let policy = agent_browser_policy(&window.app_handle());
     let combined_prompt = if system_prompt.trim().is_empty() {
         policy
@@ -1228,6 +1229,7 @@ async fn cowork_stream(
         config_path,
         "cowork://event",
         extra_system_prompt,
+        browser_status.available,
         auto_approve,
         auth_config,
         cancel_rx,
@@ -1331,6 +1333,7 @@ async fn chat_stream(
     let session_id_clone = session_id.clone();
 
     // Wrap the stream_chat to capture the response
+    let browser_status = agent_browser_status(window.app_handle().clone());
     let result = llm::stream_chat(
         window_clone,
         state.clone(),
@@ -1341,6 +1344,7 @@ async fn chat_stream(
         config_path,
         "chat://event",
         Some(agent_browser_policy(&window.app_handle())),
+        browser_status.available,
         auto_approve,
         auth_config,
         cancel_rx,

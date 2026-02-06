@@ -147,6 +147,7 @@ pub async fn stream_chat(
     config_path: Option<String>,
     event_target: &str,
     extra_system_prompt: Option<String>,
+    agent_browser_available: bool,
     auto_approve: bool,
     auth_config: crate::AuthConfig,
     mut cancel_rx: tokio::sync::oneshot::Receiver<()>,
@@ -198,7 +199,17 @@ pub async fn stream_chat(
 
     // Build system prompt with directory context
     let system_prompt = generate_system_prompt(&work_dir, extra_system_prompt.as_deref());
-    let tools_def = tools::tool_definitions();
+    let mut tools_def = tools::tool_definitions();
+    if agent_browser_available {
+        tools_def.retain(|tool| {
+            let name = tool
+                .get("function")
+                .and_then(|value| value.get("name"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            name != "SearchWeb" && name != "FetchURL"
+        });
+    }
     let mut messages = vec![
         serde_json::json!({
             "role": "system",
@@ -415,6 +426,7 @@ pub async fn stream_chat(
                             &args_value,
                             &work_dir,
                             config_path.as_deref(),
+                            agent_browser_available,
                         )
                         .await;
 
@@ -711,6 +723,7 @@ async fn execute_tool(
     args: &serde_json::Value,
     work_dir: &str,
     config_path: Option<&str>,
+    agent_browser_available: bool,
 ) -> tools::ToolOutput {
     match name {
         "ReadFile" => {
@@ -810,6 +823,13 @@ async fn execute_tool(
             tools::str_replace_file(work_dir, path, edits)
         }
         "SearchWeb" => {
+            if agent_browser_available {
+                return tools::ToolOutput {
+                    ok: false,
+                    summary: "SearchWeb is disabled while agent-browser is available. Use Shell with agent-browser.".to_string(),
+                    output: String::new(),
+                };
+            }
             let query = match args.get("query").and_then(|v| v.as_str()) {
                 Some(value) if !value.trim().is_empty() => value,
                 _ => {
@@ -832,6 +852,13 @@ async fn execute_tool(
             tools::search_web(config_path, tool_call_id, query, limit, include_content).await
         }
         "FetchURL" => {
+            if agent_browser_available {
+                return tools::ToolOutput {
+                    ok: false,
+                    summary: "FetchURL is disabled while agent-browser is available. Use Shell with agent-browser.".to_string(),
+                    output: String::new(),
+                };
+            }
             let url = match args.get("url").and_then(|v| v.as_str()) {
                 Some(value) if !value.trim().is_empty() => value,
                 _ => {
