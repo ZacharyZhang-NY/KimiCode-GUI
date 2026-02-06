@@ -66,23 +66,23 @@ jobs:
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli
 
-      - name: Work around npm optional dependency bug (Linux)
+      - name: Work around npm optional dependency bug (Linux, global CLI)
         if: runner.os == 'Linux'
         run: |
-          npm install --no-save "@tauri-apps/cli-linux-x64-gnu@2.9.6"
+          npm install -g "@tauri-apps/cli-linux-x64-gnu@2.9.6"
 
-      - name: Work around npm optional dependency bug (Windows)
+      - name: Work around npm optional dependency bug (Windows, global CLI)
         if: runner.os == 'Windows'
         run: |
-          npm install --no-save "@tauri-apps/cli-win32-x64-msvc@2.9.6"
+          npm install -g "@tauri-apps/cli-win32-x64-msvc@2.9.6"
 
-      - name: Work around npm optional dependency bug (macOS)
+      - name: Work around npm optional dependency bug (macOS, global CLI)
         if: runner.os == 'macOS'
         run: |
-          npm install --no-save "@tauri-apps/cli-darwin-arm64@2.9.6"
+          npm install -g "@tauri-apps/cli-darwin-arm64@2.9.6"
 
-      - name: Install agent-browser package
-        run: npm install --no-save "agent-browser@${{ env.AGENT_BROWSER_VERSION }}"
+      - name: Verify global Tauri CLI
+        run: tauri --version
 
       - name: Configure agent-browser binary directory
         shell: bash
@@ -146,12 +146,9 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Build Tauri app
-        run: npm run tauri build -- --target ${{ matrix.target }}
-        env:
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_KEY_PATH: ${{ github.workspace }}/api_key.p8
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          npm run build
+          tauri build --target ${{ matrix.target }}
 
       - name: Verify embedded agent-browser resources
         shell: bash
