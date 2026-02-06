@@ -146,9 +146,17 @@ jobs:
           security find-identity -v -p codesigning build.keychain
 
       - name: Build Tauri app
+        shell: bash
         run: |
+          set -euo pipefail
           npm run build
-          tauri build --target ${{ matrix.target }}
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            # GitHub macOS runners are headless and DMG Finder-prettifying can fail in bundle_dmg.sh.
+            # Build only the app bundle here and package/notarize the .app artifact.
+            tauri build --target ${{ matrix.target }} --bundles app
+          else
+            tauri build --target ${{ matrix.target }}
+          fi
 
       - name: Verify embedded agent-browser resources
         shell: bash
