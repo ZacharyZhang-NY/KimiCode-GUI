@@ -65,8 +65,7 @@ fn default_config_path() -> PathBuf {
 #[allow(dead_code)]
 fn parse_config_content(path: &Path, raw: &str) -> Result<serde_json::Value, String> {
     if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-        serde_json::from_str(raw)
-            .map_err(|error| format!("Invalid JSON in {path:?}: {error}"))
+        serde_json::from_str(raw).map_err(|error| format!("Invalid JSON in {path:?}: {error}"))
     } else {
         let value: toml::Value =
             toml::from_str(raw).map_err(|error| format!("Invalid TOML in {path:?}: {error}"))?;
@@ -139,9 +138,7 @@ fn resolve_path(work_dir: &str, path: &str, must_exist: bool) -> Result<PathBuf,
         let canonical_root = base
             .canonicalize()
             .map_err(|e| format!("Failed to resolve work dir: {e}"))?;
-        let parent = target
-            .parent()
-            .ok_or_else(|| "Invalid path".to_string())?;
+        let parent = target.parent().ok_or_else(|| "Invalid path".to_string())?;
         let canonical_parent = parent
             .canonicalize()
             .map_err(|e| format!("Failed to resolve path: {e}"))?;
@@ -338,15 +335,40 @@ pub fn tool_definitions() -> Vec<serde_json::Value> {
                 }
             }
         }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "SearchWeb",
+                "description": "Search the web and return summarized results.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "query": { "type": "string", "description": "Search query." },
+                        "limit": { "type": "integer", "description": "Maximum number of results.", "minimum": 1 },
+                        "include_content": { "type": "boolean", "description": "Include crawled page content when available." }
+                    },
+                    "required": ["query"]
+                }
+            }
+        }),
+        serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "FetchURL",
+                "description": "Fetch a URL and return text/HTML content.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "url": { "type": "string", "description": "URL to fetch." }
+                    },
+                    "required": ["url"]
+                }
+            }
+        }),
     ]
 }
 
-pub fn read_file(
-    work_dir: &str,
-    path: &str,
-    line_offset: usize,
-    n_lines: usize,
-) -> ToolOutput {
+pub fn read_file(work_dir: &str, path: &str, line_offset: usize, n_lines: usize) -> ToolOutput {
     let resolved = match resolve_path(work_dir, path, true) {
         Ok(p) => p,
         Err(err) => {
@@ -492,7 +514,10 @@ pub async fn run_shell(work_dir: &str, command: &str, timeout_secs: u64) -> Tool
             if output.status.success() {
                 ToolOutput {
                     ok: true,
-                    summary: append_truncation("Command executed successfully.".to_string(), truncated),
+                    summary: append_truncation(
+                        "Command executed successfully.".to_string(),
+                        truncated,
+                    ),
                     output: combined,
                 }
             } else {
@@ -522,7 +547,10 @@ pub async fn run_shell(work_dir: &str, command: &str, timeout_secs: u64) -> Tool
 fn shell_command(command: &str) -> (String, Vec<String>) {
     #[cfg(windows)]
     {
-        return ("cmd".to_string(), vec!["/C".to_string(), command.to_string()]);
+        return (
+            "cmd".to_string(),
+            vec!["/C".to_string(), command.to_string()],
+        );
     }
 
     #[cfg(not(windows))]
@@ -592,7 +620,11 @@ pub fn write_file(work_dir: &str, path: &str, content: &str, mode: &str) -> Tool
         }
     }
 
-    let action = if mode == "append" { "appended to" } else { "overwritten" };
+    let action = if mode == "append" {
+        "appended to"
+    } else {
+        "overwritten"
+    };
     ToolOutput {
         ok: true,
         summary: format!("File successfully {action}."),
@@ -608,11 +640,7 @@ pub struct ReplaceEdit {
     pub replace_all: bool,
 }
 
-pub fn str_replace_file(
-    work_dir: &str,
-    path: &str,
-    edits: Vec<ReplaceEdit>,
-) -> ToolOutput {
+pub fn str_replace_file(work_dir: &str, path: &str, edits: Vec<ReplaceEdit>) -> ToolOutput {
     let resolved = match resolve_path(work_dir, path, true) {
         Ok(p) => p,
         Err(err) => {
@@ -772,10 +800,7 @@ pub async fn search_web(
         }
         output.push_str(&format!(
             "Title: {}\nDate: {}\nURL: {}\nSummary: {}\n\n",
-            result.title,
-            result.date,
-            result.url,
-            result.snippet
+            result.title, result.date, result.url, result.snippet
         ));
         if !result.content.is_empty() {
             output.push_str(&result.content);
@@ -791,11 +816,7 @@ pub async fn search_web(
 }
 
 #[allow(dead_code)]
-pub async fn fetch_url(
-    config_path: Option<&str>,
-    tool_call_id: &str,
-    url: &str,
-) -> ToolOutput {
+pub async fn fetch_url(config_path: Option<&str>, tool_call_id: &str, url: &str) -> ToolOutput {
     let config = load_config_value(config_path).ok();
     if let Some(config) = config {
         if let Some(service) = parse_service_config(&config, "moonshot_fetch") {
@@ -876,13 +897,12 @@ pub async fn fetch_url(
         }
     };
 
-    let summary = if content_type.starts_with("text/plain")
-        || content_type.starts_with("text/markdown")
-    {
-        "Fetched plain text content.".to_string()
-    } else {
-        "Fetched response body.".to_string()
-    };
+    let summary =
+        if content_type.starts_with("text/plain") || content_type.starts_with("text/markdown") {
+            "Fetched plain text content.".to_string()
+        } else {
+            "Fetched response body.".to_string()
+        };
     let (output, truncated) = truncate_output(&body);
 
     ToolOutput {

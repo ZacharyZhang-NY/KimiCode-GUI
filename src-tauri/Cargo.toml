@@ -1,6 +1,6 @@
 [package]
 name = "kimi-gui"
-version = "0.4.7"
+version = "0.4.8"
 description = "Kimi GUI desktop client"
 authors = ["Kimi Team"]
 license = "Apache-2.0"

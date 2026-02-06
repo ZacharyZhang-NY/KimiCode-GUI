@@ -32,6 +32,15 @@ KIMI_GUI_COMMAND="python -m kimi_cli" npm run tauri dev
 npm run tauri build
 ```
 
+## Optional: Agent Browser
+
+Kimi Ensemble can use `agent-browser` for richer web automation.
+
+For better web functionality, install Agent Browser first:
+[https://agent-browser.dev/installation](https://agent-browser.dev/installation)
+
+If `agent-browser` is not available, Ensemble will fall back to `FetchURL` / `SearchWeb` and shell-based `curl`/`wget` flows.
+
 ## Notes
 
 - The Tauri config lives in `src-tauri/tauri.conf.json`.

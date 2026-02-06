@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.4.8
+- Removed bundled Agent Browser from app packaging and CI signing/notarization paths to stabilize cross-platform release builds.
+- Kept Ensemble mode and switched to runtime detection of external `agent-browser` (`PATH` / `npx --no-install`).
+- Enabled `SearchWeb` / `FetchURL` fallback when `agent-browser` is unavailable, with optional `curl`/`wget` shell fallback.
+- Added README guidance for optional Agent Browser installation: https://agent-browser.dev/installation
+
 ## v0.4.7
 - Fixed Windows packaging step to tolerate missing MSI output when NSIS-only build is selected in CI.
 - Added explicit artifact-existence guard so CI fails only when no Windows installer is produced.

@@ -2701,12 +2701,12 @@
 - For any request that needs internet/web pages, use the Shell tool with agent-browser only.
 - Command prefix: ${browserStatus.command}
 - Default flow: open <url> -> snapshot -i -> interact using @eN refs -> re-snapshot after navigation.
-- Do not use SearchWeb or FetchURL.`
+- Do not use SearchWeb or FetchURL while agent-browser is available.`
       : `Internet policy:
-- For any request that needs internet/web pages, use Shell tool with agent-browser only.
 - agent-browser is currently unavailable (${browserStatus?.detail || 'unknown reason'}).
-- Report the limitation and stop before attempting web access.
-- Do not use SearchWeb or FetchURL.`;
+- For internet requests, use FetchURL/SearchWeb tools first.
+- If needed, use Shell with curl/wget as fallback.
+- Be explicit that agent-browser is unavailable.`;
     
     // Build a system prompt for autonomous task execution
     const systemPrompt = `You are an autonomous AI assistant helping with file and computer operations. 

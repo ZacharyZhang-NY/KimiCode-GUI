@@ -12,9 +12,6 @@ permissions:
 jobs:
   build:
     name: Build (${{ matrix.target }})
-    env:
-      AGENT_BROWSER_VERSION: 0.9.1
-      AGENT_BROWSER_REQUIRED: "1"
     strategy:
       fail-fast: false
       matrix:
@@ -84,44 +81,6 @@ jobs:
       - name: Verify global Tauri CLI
         run: tauri --version
 
-      - name: Configure agent-browser binary directory
-        shell: bash
-        run: |
-          set -euo pipefail
-          BIN_DIR="$(pwd)/node_modules/agent-browser/bin"
-          if [ ! -d "$BIN_DIR" ]; then
-            echo "agent-browser bin directory not found: $BIN_DIR"
-            exit 1
-          fi
-          echo "AGENT_BROWSER_BIN_DIR=$BIN_DIR" >> "$GITHUB_ENV"
-
-      - name: Verify agent-browser binaries for target
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "${{ matrix.target }}" in
-            x86_64-unknown-linux-gnu)
-              required=("agent-browser-linux-x64")
-              ;;
-            x86_64-pc-windows-msvc)
-              required=("agent-browser-win32-x64.exe")
-              ;;
-            universal-apple-darwin)
-              required=("agent-browser-darwin-arm64" "agent-browser-darwin-x64")
-              ;;
-            *)
-              echo "Unsupported target for agent-browser verification: ${{ matrix.target }}"
-              exit 1
-              ;;
-          esac
-
-          for bin in "${required[@]}"; do
-            if [ ! -f "$AGENT_BROWSER_BIN_DIR/$bin" ]; then
-              echo "Missing agent-browser binary: $AGENT_BROWSER_BIN_DIR/$bin"
-              exit 1
-            fi
-          done
-
       - name: Prepare App Store Connect API key (macOS)
         if: runner.os == 'macOS'
         env:
@@ -164,39 +123,6 @@ jobs:
             tauri build --target ${{ matrix.target }}
           fi
 
-      - name: Verify embedded agent-browser resources
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          check_file() {
-            local path="$1"
-            if [ ! -f "$path" ]; then
-              echo "Missing embedded agent-browser resource: $path"
-              exit 1
-            fi
-          }
-
-          case "${{ matrix.target }}" in
-            x86_64-unknown-linux-gnu)
-              check_file "src-tauri/resources/agent-browser/linux-x86_64/agent-browser"
-              ;;
-            x86_64-pc-windows-msvc)
-              check_file "src-tauri/resources/agent-browser/windows-x86_64/agent-browser.exe"
-              ;;
-            universal-apple-darwin)
-              check_file "src-tauri/resources/agent-browser/macos-aarch64/agent-browser"
-              check_file "src-tauri/resources/agent-browser/macos-x86_64/agent-browser"
-              APP_RESOURCE_ROOT="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Kimi GUI.app/Contents/Resources/agent-browser"
-              check_file "$APP_RESOURCE_ROOT/macos-aarch64/agent-browser"
-              check_file "$APP_RESOURCE_ROOT/macos-x86_64/agent-browser"
-              ;;
-            *)
-              echo "Unsupported target for resource verification: ${{ matrix.target }}"
-              exit 1
-              ;;
-          esac
-
       - name: Notarize and staple macOS app
         if: runner.os == 'macOS'
         env:
@@ -206,7 +132,6 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Kimi GUI.app"
-          EMBEDDED_AGENT_ROOT="$APP_PATH/Contents/Resources/agent-browser"
           DMG_PATH=$(ls "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/"Kimi\ GUI_*.dmg 2>/dev/null | head -n 1 || true)
           if [ ! -d "$APP_PATH" ]; then
             echo "App not found at $APP_PATH"
@@ -221,16 +146,7 @@ jobs:
             exit 1
           fi
 
-          # Sign all embedded Mach-O binaries with hardened runtime + secure timestamp.
-          if [ -d "$EMBEDDED_AGENT_ROOT" ]; then
-            while IFS= read -r -d '' file; do
-              if file "$file" | grep -q "Mach-O"; then
-                codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$file"
-              fi
-            done < <(find "$EMBEDDED_AGENT_ROOT" -type f -print0)
-          fi
-
-          # Re-sign app bundle after nested binaries are signed.
+          # Sign app bundle with hardened runtime + secure timestamp.
           codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           APP_ZIP="Kimi GUI.app.zip"

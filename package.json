@@ -1,6 +1,6 @@
 {
   "name": "kimi-gui",
-  "version": "0.4.7",
+  "version": "0.4.8",
   "private": true,
   "scripts": {
     "build": "node ui/build.js",
@@ -8,7 +8,6 @@
     "tauri": "tauri"
   },
   "devDependencies": {
-    "@tauri-apps/cli": "2.9.6",
-    "agent-browser": "^0.9.1"
+    "@tauri-apps/cli": "2.9.6"
   }
 }

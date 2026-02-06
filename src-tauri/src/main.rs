@@ -13,9 +13,9 @@ use std::process::Command;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 use tauri::{Emitter, Manager};
-// 
+//
 
-pub use oauth::{OAuthToken, load_token, save_token, delete_token, is_logged_in};
+pub use oauth::{delete_token, is_logged_in, load_token, save_token, OAuthToken};
 pub use session::{Message, Session, SessionManager};
 
 #[derive(Serialize)]
@@ -150,8 +150,7 @@ fn save_auth_config(config: &AuthConfig) -> Result<(), String> {
     let path = auth_config_path();
     let json = serde_json::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize auth config: {}", e))?;
-    fs::write(&path, json)
-        .map_err(|e| format!("Failed to write auth config: {}", e))?;
+    fs::write(&path, json).map_err(|e| format!("Failed to write auth config: {}", e))?;
     Ok(())
 }
 
@@ -196,103 +195,20 @@ fn command_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn shell_escape_path(path: &Path) -> String {
-    let value = path.to_string_lossy();
-    #[cfg(windows)]
-    {
-        format!("\"{}\"", value.replace('\"', "\"\""))
-    }
-    #[cfg(not(windows))]
-    {
-        format!("'{}'", value.replace('\'', "'\\''"))
-    }
-}
-
-fn shell_command_with_agent_browser_home(binary: &Path, home: &Path) -> String {
-    #[cfg(windows)]
-    {
-        let home_value = home.to_string_lossy().replace('\"', "\"\"");
-        return format!(
-            "set \"AGENT_BROWSER_HOME={home_value}\" && {}",
-            shell_escape_path(binary)
-        );
+fn npx_agent_browser_available() -> bool {
+    if !command_exists("npx") {
+        return false;
     }
 
-    #[cfg(not(windows))]
-    {
-        format!(
-            "AGENT_BROWSER_HOME={} {}",
-            shell_escape_path(home),
-            shell_escape_path(binary)
-        )
-    }
-}
-
-fn embedded_agent_browser_path(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let resource_dir = app.path().resource_dir().ok()?;
-    let target_key = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
-    let binary_name = if cfg!(windows) {
-        "agent-browser.exe"
-    } else {
-        "agent-browser"
-    };
-
-    let candidates = [
-        resource_dir
-            .join("agent-browser")
-            .join(&target_key)
-            .join(binary_name),
-        resource_dir.join("agent-browser").join(binary_name),
-    ];
-
-    candidates.into_iter().find(|path| path.is_file())
-}
-
-fn embedded_agent_browser_home(app: &tauri::AppHandle) -> Option<PathBuf> {
-    let resource_dir = app.path().resource_dir().ok()?;
-    let target_key = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
-
-    let candidates = [
-        resource_dir
-            .join("agent-browser")
-            .join(&target_key)
-            .join("runtime")
-            .join("node_modules")
-            .join("agent-browser"),
-        resource_dir
-            .join("agent-browser")
-            .join("runtime")
-            .join("node_modules")
-            .join("agent-browser"),
-    ];
-
-    candidates.into_iter().find(|path| {
-        path.is_dir() && path.join("dist").join("daemon.js").is_file()
-    })
+    Command::new("npx")
+        .args(["--no-install", "agent-browser", "--version"])
+        .output()
+        .map(|out| out.status.success())
+        .unwrap_or(false)
 }
 
 #[tauri::command]
-fn agent_browser_status(app: tauri::AppHandle) -> AgentBrowserStatus {
-    let mut bundled_detail: Option<String> = None;
-
-    if let Some(path) = embedded_agent_browser_path(&app) {
-        if let Some(home) = embedded_agent_browser_home(&app) {
-            return AgentBrowserStatus {
-                available: true,
-                command: Some(shell_command_with_agent_browser_home(&path, &home)),
-                detail: format!(
-                    "Bundled agent-browser found at {} with runtime {}",
-                    path.to_string_lossy(),
-                    home.to_string_lossy()
-                ),
-            };
-        }
-        bundled_detail = Some(format!(
-            "Bundled agent-browser binary found at {}, but runtime is missing.",
-            path.to_string_lossy()
-        ));
-    }
-
+fn agent_browser_status(_app: tauri::AppHandle) -> AgentBrowserStatus {
     if command_exists("agent-browser") {
         return AgentBrowserStatus {
             available: true,
@@ -301,33 +217,33 @@ fn agent_browser_status(app: tauri::AppHandle) -> AgentBrowserStatus {
         };
     }
 
-    if command_exists("npx") {
+    if npx_agent_browser_available() {
         return AgentBrowserStatus {
             available: true,
-            command: Some("npx --yes agent-browser".to_string()),
-            detail: "agent-browser not found in PATH; npx fallback is available.".to_string(),
+            command: Some("npx --no-install agent-browser".to_string()),
+            detail: "agent-browser is available through npm (npx --no-install).".to_string(),
         };
     }
 
     AgentBrowserStatus {
         available: false,
         command: None,
-        detail: bundled_detail.unwrap_or_else(|| {
-            "Neither bundled agent-browser runtime, agent-browser in PATH, nor npx fallback is available.".to_string()
-        }),
+        detail: "agent-browser is not installed in PATH/npm context.".to_string(),
     }
 }
 
 fn agent_browser_policy(app: &tauri::AppHandle) -> String {
     let status = agent_browser_status(app.clone());
     if status.available {
-        let command = status.command.unwrap_or_else(|| "agent-browser".to_string());
+        let command = status
+            .command
+            .unwrap_or_else(|| "agent-browser".to_string());
         format!(
-            "Internet access policy:\n- For any request that needs internet/web pages, you MUST use the Shell tool with agent-browser.\n- Command prefix: {command}\n- Default flow: open <url> -> snapshot -i -> interact using @eN refs -> re-snapshot after navigation.\n- Do NOT use SearchWeb or FetchURL."
+            "Internet access policy:\n- For any request that needs internet/web pages, you MUST use the Shell tool with agent-browser.\n- Command prefix: {command}\n- Default flow: open <url> -> snapshot -i -> interact using @eN refs -> re-snapshot after navigation.\n- Do NOT use SearchWeb or FetchURL while agent-browser is available."
         )
     } else {
         format!(
-            "Internet access policy:\n- For any request that needs internet/web pages, use Shell tool with agent-browser only.\n- agent-browser is currently unavailable in this environment ({detail}).\n- Report this limitation clearly and stop before attempting web access.\n- Do NOT use SearchWeb or FetchURL.",
+            "Internet access policy:\n- agent-browser is currently unavailable in this environment ({detail}).\n- For internet requests, use FetchURL/SearchWeb tools first.\n- If needed, use Shell with curl/wget as fallback.\n- Be explicit that agent-browser is unavailable.",
             detail = status.detail
         )
     }
@@ -389,9 +305,7 @@ fn copy_file_if_missing(source: &Path, destination: &Path) -> Result<(), String>
     }
     ensure_parent(destination)?;
     fs::copy(source, destination).map_err(|error| {
-        format!(
-            "Failed to migrate file from {source:?} to {destination:?}: {error}"
-        )
+        format!("Failed to migrate file from {source:?} to {destination:?}: {error}")
     })?;
     Ok(())
 }
@@ -411,8 +325,8 @@ fn copy_dir_if_missing(source: &Path, destination: &Path) -> Result<(), String> 
         .map_err(|error| format!("Failed to read migration directory {source:?}: {error}"))?;
 
     for entry in entries {
-        let entry =
-            entry.map_err(|error| format!("Failed to read migration entry in {source:?}: {error}"))?;
+        let entry = entry
+            .map_err(|error| format!("Failed to read migration entry in {source:?}: {error}"))?;
         let source_path = entry.path();
         let destination_path = destination.join(entry.file_name());
         let file_type = entry
@@ -536,8 +450,7 @@ fn strip_nulls(value: &mut serde_json::Value) {
 
 fn parse_config_content(path: &Path, raw: &str) -> Result<serde_json::Value, String> {
     if path.extension().and_then(|ext| ext.to_str()) == Some("json") {
-        serde_json::from_str(raw)
-            .map_err(|error| format!("Invalid JSON in {path:?}: {error}"))
+        serde_json::from_str(raw).map_err(|error| format!("Invalid JSON in {path:?}: {error}"))
     } else {
         let value: toml::Value =
             toml::from_str(raw).map_err(|error| format!("Invalid TOML in {path:?}: {error}"))?;
@@ -558,20 +471,14 @@ fn encode_config_content(path: &Path, data: &serde_json::Value) -> Result<String
 fn normalize_legacy_storage_path(path: &str) -> String {
     let unix = path.replace("/.kimi/", "/.kimicodegui/");
     let unix = if unix.ends_with("/.kimi") {
-        format!(
-            "{}/.kimicodegui",
-            unix.trim_end_matches("/.kimi")
-        )
+        format!("{}/.kimicodegui", unix.trim_end_matches("/.kimi"))
     } else {
         unix
     };
 
     let windows = unix.replace("\\.kimi\\", "\\.kimicodegui\\");
     if windows.ends_with("\\.kimi") {
-        format!(
-            "{}\\.kimicodegui",
-            windows.trim_end_matches("\\.kimi")
-        )
+        format!("{}\\.kimicodegui", windows.trim_end_matches("\\.kimi"))
     } else {
         windows
     }
@@ -706,18 +613,21 @@ fn load_sessions(work_dir: &str) -> Result<Vec<SessionInfo>, String> {
     }
 
     let raw = read_text(&meta_path)?;
-    let data: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| format!("Failed to parse metadata: {e}"))?;
+    let data: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("Failed to parse metadata: {e}"))?;
 
     let empty_vec = Vec::new();
-    let work_dirs = data.get("work_dirs").and_then(|v| v.as_array()).unwrap_or(&empty_vec);
-    
+    let work_dirs = data
+        .get("work_dirs")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty_vec);
+
     for wd in work_dirs {
         let path = wd.get("path").and_then(|v| v.as_str()).unwrap_or("");
         if path == work_dir {
             let kaos = wd.get("kaos").and_then(|v| v.as_str()).unwrap_or("local");
             let sessions_dir = get_session_dir(path, kaos)?;
-            
+
             let mut sessions = Vec::new();
             if let Ok(entries) = fs::read_dir(&sessions_dir) {
                 for entry in entries.flatten() {
@@ -725,30 +635,32 @@ fn load_sessions(work_dir: &str) -> Result<Vec<SessionInfo>, String> {
                     if !session_path.is_dir() {
                         continue;
                     }
-                    
-                    let session_id = session_path.file_name()
+
+                    let session_id = session_path
+                        .file_name()
                         .and_then(|n| n.to_str())
                         .unwrap_or("")
                         .to_string();
-                    
+
                     let context_file = session_path.join("context.jsonl");
                     let wire_file = session_path.join("wire.jsonl");
-                    
+
                     if !context_file.exists() {
                         continue;
                     }
-                    
-                    let updated_at = context_file.metadata()
+
+                    let updated_at = context_file
+                        .metadata()
                         .and_then(|m| m.modified())
                         .ok()
                         .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                         .map(|d| d.as_secs_f64())
                         .unwrap_or(0.0);
-                    
+
                     let title = extract_session_title(&wire_file).unwrap_or_else(|| {
                         format!("Session {}", &session_id[..8.min(session_id.len())])
                     });
-                    
+
                     sessions.push(SessionInfo {
                         id: session_id,
                         title,
@@ -757,29 +669,29 @@ fn load_sessions(work_dir: &str) -> Result<Vec<SessionInfo>, String> {
                     });
                 }
             }
-            
+
             sessions.sort_by(|a, b| b.updated_at.partial_cmp(&a.updated_at).unwrap());
             return Ok(sessions);
         }
     }
-    
+
     Ok(Vec::new())
 }
 
 fn get_session_dir(work_dir: &str, kaos: &str) -> Result<PathBuf, String> {
-    use std::hash::{Hash, Hasher};
     use std::collections::hash_map::DefaultHasher;
-    
+    use std::hash::{Hash, Hasher};
+
     let mut hasher = DefaultHasher::new();
     work_dir.hash(&mut hasher);
     let hash = format!("{:016x}", hasher.finish());
-    
+
     let dir_name = if kaos == "local" {
         hash
     } else {
         format!("{}_{}", kaos, hash)
     };
-    
+
     let session_dir = kimi_share_dir().join("sessions").join(dir_name);
     Ok(session_dir)
 }
@@ -788,9 +700,9 @@ fn extract_session_title(wire_file: &Path) -> Option<String> {
     if !wire_file.exists() {
         return None;
     }
-    
+
     let content = fs::read_to_string(wire_file).ok()?;
-    
+
     for line in content.lines().take(50) {
         if let Ok(record) = serde_json::from_str::<serde_json::Value>(line) {
             if record.get("type").and_then(|v| v.as_str()) == Some("turn_begin") {
@@ -801,7 +713,7 @@ fn extract_session_title(wire_file: &Path) -> Option<String> {
             }
         }
     }
-    
+
     None
 }
 
@@ -812,8 +724,8 @@ fn load_cowork_history_entries() -> Result<Vec<CoworkHistoryEntry>, String> {
     }
 
     let raw = read_text(&path)?;
-    let mut entries: Vec<CoworkHistoryEntry> =
-        serde_json::from_str(&raw).map_err(|error| format!("Invalid cowork history JSON: {error}"))?;
+    let mut entries: Vec<CoworkHistoryEntry> = serde_json::from_str(&raw)
+        .map_err(|error| format!("Invalid cowork history JSON: {error}"))?;
     entries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     Ok(entries)
 }
@@ -881,9 +793,8 @@ fn app_info() -> AppInfo {
 
 #[tauri::command]
 fn app_paths() -> AppPaths {
-    let work_dir = find_repo_root().unwrap_or_else(|| {
-        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
-    });
+    let work_dir = find_repo_root()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     AppPaths {
         config: default_config_path().to_string_lossy().to_string(),
@@ -896,9 +807,7 @@ fn app_paths() -> AppPaths {
 
 #[tauri::command]
 fn config_load(path: Option<String>) -> Result<session::ConfigPayload, String> {
-    let path = path
-        .map(PathBuf::from)
-        .unwrap_or_else(default_config_path);
+    let path = path.map(PathBuf::from).unwrap_or_else(default_config_path);
 
     if !path.exists() {
         let data = default_config_data();
@@ -920,9 +829,7 @@ fn config_load(path: Option<String>) -> Result<session::ConfigPayload, String> {
 
 #[tauri::command]
 fn config_save(path: Option<String>, data: serde_json::Value) -> Result<(), String> {
-    let path = path
-        .map(PathBuf::from)
-        .unwrap_or_else(default_config_path);
+    let path = path.map(PathBuf::from).unwrap_or_else(default_config_path);
     let mut clean = data.clone();
     strip_nulls(&mut clean);
     let raw = encode_config_content(&path, &clean)?;
@@ -932,9 +839,7 @@ fn config_save(path: Option<String>, data: serde_json::Value) -> Result<(), Stri
 
 #[tauri::command]
 fn config_save_raw(path: Option<String>, raw: String) -> Result<(), String> {
-    let path = path
-        .map(PathBuf::from)
-        .unwrap_or_else(default_config_path);
+    let path = path.map(PathBuf::from).unwrap_or_else(default_config_path);
     parse_config_content(&path, &raw)?;
     write_text(&path, &raw)?;
     Ok(())
@@ -945,8 +850,7 @@ fn mcp_load(path: Option<String>) -> Result<session::McpPayload, String> {
     let path = path.map(PathBuf::from).unwrap_or_else(default_mcp_path);
     if !path.exists() {
         let raw = serde_json::json!({ "mcpServers": {} });
-        let content =
-            serde_json::to_string_pretty(&raw).map_err(|error| error.to_string())?;
+        let content = serde_json::to_string_pretty(&raw).map_err(|error| error.to_string())?;
         write_text(&path, &content)?;
     }
     let raw = read_text(&path)?;
@@ -1005,7 +909,10 @@ fn gui_settings_save(path: Option<String>, settings: GuiSettings) -> Result<(), 
 }
 
 #[tauri::command]
-fn skills_list(work_dir: Option<String>, skills_dir: Option<String>) -> Result<SkillsPayload, String> {
+fn skills_list(
+    work_dir: Option<String>,
+    skills_dir: Option<String>,
+) -> Result<SkillsPayload, String> {
     let work_dir = work_dir.map(PathBuf::from);
 
     let mut roots = Vec::new();
@@ -1052,31 +959,39 @@ fn skills_list(work_dir: Option<String>, skills_dir: Option<String>) -> Result<S
 #[tauri::command]
 fn session_list(
     state: tauri::State<'_, AppState>,
-    work_dir: Option<String>
+    work_dir: Option<String>,
 ) -> Result<Vec<SessionInfo>, String> {
     let mut sessions = Vec::new();
-    
+
     // Load CLI sessions if work_dir is provided
     if let Some(ref wd) = work_dir {
         sessions = load_sessions(wd)?;
     }
-    
+
     // Also load GUI sessions from SessionManager
-    let mut manager = state.session_manager.lock()
+    let mut manager = state
+        .session_manager
+        .lock()
         .map_err(|_| "Session manager poisoned".to_string())?;
-    
+
     if let Ok(gui_sessions) = manager.load_all_sessions() {
         for session in &gui_sessions {
             let include = if let Some(ref wd) = work_dir {
                 // Normalize paths for comparison
-                let session_path = Path::new(&session.work_dir).canonicalize().ok().unwrap_or_else(|| Path::new(&session.work_dir).to_path_buf());
-                let work_path = Path::new(wd).canonicalize().ok().unwrap_or_else(|| Path::new(wd).to_path_buf());
+                let session_path = Path::new(&session.work_dir)
+                    .canonicalize()
+                    .ok()
+                    .unwrap_or_else(|| Path::new(&session.work_dir).to_path_buf());
+                let work_path = Path::new(wd)
+                    .canonicalize()
+                    .ok()
+                    .unwrap_or_else(|| Path::new(wd).to_path_buf());
                 session_path == work_path || session.work_dir == *wd
             } else {
                 // If no work_dir filter, include all sessions
                 true
             };
-            
+
             if include {
                 sessions.push(SessionInfo {
                     id: session.id.clone(),
@@ -1087,10 +1002,10 @@ fn session_list(
             }
         }
     }
-    
+
     // Sort by updated_at descending
     sessions.sort_by(|a, b| b.updated_at.partial_cmp(&a.updated_at).unwrap());
-    
+
     // Remove duplicates (same id)
     let mut seen = HashMap::new();
     let mut unique = Vec::new();
@@ -1100,7 +1015,7 @@ fn session_list(
             unique.push(s);
         }
     }
-    
+
     Ok(unique)
 }
 
@@ -1108,11 +1023,16 @@ fn session_list(
 fn auth_check_status() -> Result<AuthStatus, String> {
     // Check OAuth
     let oauth_logged_in = oauth::is_logged_in();
-    
+
     // Check API Key
     let config = load_auth_config();
-    let api_key_valid = config.mode == "api_key" && config.api_key.as_ref().map(|k| !k.is_empty()).unwrap_or(false);
-    
+    let api_key_valid = config.mode == "api_key"
+        && config
+            .api_key
+            .as_ref()
+            .map(|k| !k.is_empty())
+            .unwrap_or(false);
+
     let is_logged_in = oauth_logged_in || api_key_valid;
     let mode = if oauth_logged_in {
         "oauth"
@@ -1121,10 +1041,14 @@ fn auth_check_status() -> Result<AuthStatus, String> {
     } else {
         "none"
     };
-    
+
     Ok(AuthStatus {
         is_logged_in,
-        user: if is_logged_in { Some("User".to_string()) } else { None },
+        user: if is_logged_in {
+            Some("User".to_string())
+        } else {
+            None
+        },
         mode: mode.to_string(),
     })
 }
@@ -1132,24 +1056,28 @@ fn auth_check_status() -> Result<AuthStatus, String> {
 #[tauri::command]
 fn session_messages(
     state: tauri::State<'_, AppState>,
-    work_dir: String, 
-    session_id: String
+    work_dir: String,
+    session_id: String,
 ) -> Result<Vec<Message>, String> {
     // First try GUI sessions from memory (most common case)
     {
-        let manager = state.session_manager.lock()
+        let manager = state
+            .session_manager
+            .lock()
             .map_err(|_| "Session manager poisoned".to_string())?;
-        
+
         if let Some(session) = manager.sessions.get(&session_id) {
             return Ok(session.messages.clone());
         }
     }
-    
+
     // Try loading from disk
     {
-        let mut manager = state.session_manager.lock()
+        let mut manager = state
+            .session_manager
+            .lock()
             .map_err(|_| "Session manager poisoned".to_string())?;
-        
+
         match manager.load_all_sessions() {
             Ok(sessions) => {
                 for session in sessions {
@@ -1161,12 +1089,14 @@ fn session_messages(
             Err(_) => {}
         }
     }
-    
+
     // Finally try CLI sessions (from wire files)
     {
-        let manager = state.session_manager.lock()
+        let manager = state
+            .session_manager
+            .lock()
             .map_err(|_| "Session manager poisoned".to_string())?;
-        
+
         match manager.load_messages(&work_dir, &session_id) {
             Ok(messages) => {
                 if !messages.is_empty() {
@@ -1176,7 +1106,7 @@ fn session_messages(
             Err(_) => {}
         }
     }
-    
+
     Ok(Vec::new())
 }
 
@@ -1188,23 +1118,25 @@ fn session_save_message(
     content: String,
 ) -> Result<(), String> {
     use crate::session::Message as SessionMessage;
-    
-    let mut manager = state.session_manager.lock()
+
+    let mut manager = state
+        .session_manager
+        .lock()
         .map_err(|_| "Session manager poisoned".to_string())?;
-    
+
     let message = SessionMessage {
         role: role.clone(),
         content: content.clone(),
         timestamp: chrono::Utc::now().timestamp(),
         tool_calls: None,
     };
-    
+
     // Save to file and add to memory
     match manager.save_message(&session_id, &message) {
         Ok(_) => {}
         Err(_) => {}
     }
-    
+
     match manager.add_message(&session_id, message) {
         Ok(_) => {}
         Err(_) => {}
@@ -1242,26 +1174,26 @@ async fn cowork_stream(
     model: String,
     system_prompt: String,
 ) -> Result<(), String> {
-
-    
     // Load auth config
     let auth_config = load_auth_config();
-    
+
     // Get cancel channel
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
     {
-        let mut sessions = state.sessions.lock()
+        let mut sessions = state
+            .sessions
+            .lock()
             .map_err(|_| "Session store poisoned".to_string())?;
         let stream_id = state.next_id.fetch_add(1, Ordering::Relaxed);
         sessions.insert(stream_id, SessionHandle { cancel_tx });
     }
-    
+
     // Use YOLO mode for cowork (auto-approve most tools)
     let auto_approve = true;
-    
+
     // Wrap the window to emit to cowork://event instead of chat://event
     let window_clone = window.clone();
-    
+
     // Call the existing stream_chat but intercept events
     // For simplicity, we'll emit a step event at the start
     let _ = window.emit(
@@ -1274,10 +1206,10 @@ async fn cowork_stream(
             }),
         },
     );
-    
+
     // Use the same underlying LLM call but with cowork-specific system prompt
     let config_path = Some(app_paths().config);
-    
+
     let policy = agent_browser_policy(&window.app_handle());
     let combined_prompt = if system_prompt.trim().is_empty() {
         policy
@@ -1299,8 +1231,9 @@ async fn cowork_stream(
         auto_approve,
         auth_config,
         cancel_rx,
-    ).await;
-    
+    )
+    .await;
+
     // Emit completion event
     match &result {
         Ok(_) => {
@@ -1324,7 +1257,7 @@ async fn cowork_stream(
             );
         }
     }
-    
+
     result
 }
 
@@ -1336,14 +1269,15 @@ async fn chat_stream(
     message: String,
     settings: Option<GuiSettings>,
 ) -> Result<(), String> {
-    use crate::session::{Message as SessionMessage};
-    
+    use crate::session::Message as SessionMessage;
+
     let settings = settings.unwrap_or_default();
-    
-    let model = settings.model
+
+    let model = settings
+        .model
         .filter(|m| !m.is_empty())
         .unwrap_or_else(|| "kimi-k2.5".to_string());
-    
+
     let work_dir = settings
         .work_dir
         .filter(|path| !path.trim().is_empty())
@@ -1355,20 +1289,22 @@ async fn chat_stream(
         .or_else(|| Some(app_paths().config));
 
     let auto_approve = settings.yolo.unwrap_or(false);
-    
+
     // Load auth config
     let auth_config = load_auth_config();
-    
+
     let title = truncate_with_ellipsis(&message, 50);
-    
+
     // Create or get session and save user message
     {
-        let mut manager = state.session_manager.lock()
+        let mut manager = state
+            .session_manager
+            .lock()
             .map_err(|_| "Session manager poisoned".to_string())?;
-        
+
         // Get or create session
         let _session = manager.get_or_create_session(&session_id, &title, &work_dir);
-        
+
         // Save user message
         let user_msg = SessionMessage {
             role: "user".to_string(),
@@ -1379,19 +1315,21 @@ async fn chat_stream(
         let _ = manager.save_message(&session_id, &user_msg);
         let _ = manager.add_message(&session_id, user_msg);
     }
-    
+
     let (cancel_tx, cancel_rx) = tokio::sync::oneshot::channel();
-    
+
     {
-        let mut sessions = state.sessions.lock()
+        let mut sessions = state
+            .sessions
+            .lock()
             .map_err(|_| "Session store poisoned".to_string())?;
         let stream_id = state.next_id.fetch_add(1, Ordering::Relaxed);
         sessions.insert(stream_id, SessionHandle { cancel_tx });
     }
-    
+
     let window_clone = window.clone();
     let session_id_clone = session_id.clone();
-    
+
     // Wrap the stream_chat to capture the response
     let result = llm::stream_chat(
         window_clone,
@@ -1406,15 +1344,18 @@ async fn chat_stream(
         auto_approve,
         auth_config,
         cancel_rx,
-    ).await;
-    
+    )
+    .await;
+
     // Note: We can't easily capture the content from stream_chat since it emits to window.
-    // For now, sessions will be tracked but full message persistence requires 
+    // For now, sessions will be tracked but full message persistence requires
     // either a callback mechanism or frontend sending back the complete response.
-    
+
     // Update session timestamp
     {
-        let mut manager = state.session_manager.lock()
+        let mut manager = state
+            .session_manager
+            .lock()
             .map_err(|_| "Session manager poisoned".to_string())?;
         let now = chrono::Utc::now().timestamp();
         if let Some(session) = manager.sessions.get_mut(&session_id) {
@@ -1423,7 +1364,7 @@ async fn chat_stream(
             let _ = manager.save_session(&session_clone);
         }
     }
-    
+
     result
 }
 
@@ -1447,13 +1388,15 @@ fn tool_approval_respond(
 
 #[tauri::command]
 fn cancel_chat(state: tauri::State<'_, AppState>) -> Result<(), String> {
-    let mut sessions = state.sessions.lock()
+    let mut sessions = state
+        .sessions
+        .lock()
         .map_err(|_| "Session store poisoned".to_string())?;
-    
+
     for (_, handle) in sessions.drain() {
         let _ = handle.cancel_tx.send(());
     }
-    
+
     Ok(())
 }
 
@@ -1463,51 +1406,63 @@ fn list_files(work_dir: String, query: Option<String>) -> Result<Vec<String>, St
     if !root.exists() {
         return Ok(Vec::new());
     }
-    
+
     let mut files = Vec::new();
     let query_lower = query.unwrap_or_default().to_lowercase();
-    
+
     fn is_ignored(name: &str) -> bool {
         let ignored = [
-            ".git", ".svn", ".hg", ".DS_Store",
-            "node_modules", "target", "dist", "build",
-            ".venv", "venv", "__pycache__", ".pytest_cache",
-            ".idea", ".vscode", ".next", ".nuxt",
+            ".git",
+            ".svn",
+            ".hg",
+            ".DS_Store",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            ".venv",
+            "venv",
+            "__pycache__",
+            ".pytest_cache",
+            ".idea",
+            ".vscode",
+            ".next",
+            ".nuxt",
         ];
         ignored.iter().any(|&i| name == i || name.starts_with('.'))
     }
-    
+
     fn walk_dir(path: &Path, root: &Path, files: &mut Vec<String>, query: &str, limit: usize) {
         if files.len() >= limit {
             return;
         }
-        
+
         if let Ok(entries) = std::fs::read_dir(path) {
             for entry in entries.flatten() {
                 if files.len() >= limit {
                     break;
                 }
-                
+
                 let name = entry.file_name().to_string_lossy().to_string();
                 if is_ignored(&name) {
                     continue;
                 }
-                
+
                 let path = entry.path();
                 let rel_path = path.strip_prefix(root).unwrap_or(&path);
                 let rel_str = rel_path.to_string_lossy().to_string();
-                
+
                 if query.is_empty() || rel_str.to_lowercase().contains(query) {
                     files.push(rel_str);
                 }
-                
+
                 if path.is_dir() {
                     walk_dir(&path, root, files, query, limit);
                 }
             }
         }
     }
-    
+
     walk_dir(root, root, &mut files, &query_lower, 50);
     files.sort();
     Ok(files)
@@ -1517,36 +1472,37 @@ fn list_files(work_dir: String, query: Option<String>) -> Result<Vec<String>, St
 fn read_file(work_dir: String, file_path: String) -> Result<String, String> {
     let root = Path::new(&work_dir);
     let full_path = root.join(&file_path);
-    
+
     // Security: ensure the path is within work_dir
-    let canonical = full_path.canonicalize()
+    let canonical = full_path
+        .canonicalize()
         .map_err(|e| format!("Failed to resolve path: {}", e))?;
-    let canonical_root = root.canonicalize()
+    let canonical_root = root
+        .canonicalize()
         .map_err(|e| format!("Failed to resolve work dir: {}", e))?;
-    
+
     if !canonical.starts_with(&canonical_root) {
         return Err("Path is outside working directory".to_string());
     }
-    
+
     // Limit file size to 100KB
     let metadata = std::fs::metadata(&canonical)
         .map_err(|e| format!("Failed to read file metadata: {}", e))?;
-    
+
     if metadata.len() > 100_000 {
         return Err("File too large (max 100KB)".to_string());
     }
-    
-    std::fs::read_to_string(&canonical)
-        .map_err(|e| format!("Failed to read file: {}", e))
+
+    std::fs::read_to_string(&canonical).map_err(|e| format!("Failed to read file: {}", e))
 }
 
 #[tauri::command]
 async fn pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
-    
+
     // Use blocking_pick_folder in async context (it runs on main thread)
     let folder = app.dialog().file().blocking_pick_folder();
-    
+
     Ok(folder.map(|p| p.to_string()))
 }
 
@@ -1572,45 +1528,60 @@ fn list_dir_tree(path: String) -> Result<DirTree, String> {
     if !root.exists() {
         return Err("Path does not exist".to_string());
     }
-    
+
     if !root.is_dir() {
         return Err("Path is not a directory".to_string());
     }
-    
+
     fn is_ignored(name: &str) -> bool {
         let ignored = [
-            ".git", ".svn", ".hg", ".DS_Store",
-            "node_modules", "target", "dist", "build",
-            ".venv", "venv", "__pycache__", ".pytest_cache",
-            ".idea", ".vscode", ".next", ".nuxt",
-            "Cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
+            ".git",
+            ".svn",
+            ".hg",
+            ".DS_Store",
+            "node_modules",
+            "target",
+            "dist",
+            "build",
+            ".venv",
+            "venv",
+            "__pycache__",
+            ".pytest_cache",
+            ".idea",
+            ".vscode",
+            ".next",
+            ".nuxt",
+            "Cargo.lock",
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
         ];
         ignored.iter().any(|&i| name == i || name.starts_with('.'))
     }
-    
+
     fn read_dir_recursive(path: &Path, root: &Path, depth: usize) -> Result<Vec<DirEntry>, String> {
         if depth > 10 {
             return Ok(Vec::new()); // Limit depth
         }
-        
+
         let mut entries = Vec::new();
-        
+
         let dir_entries = match std::fs::read_dir(path) {
             Ok(entries) => entries,
             Err(_) => return Ok(Vec::new()), // Skip directories we can't read
         };
-        
+
         for entry in dir_entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
-            
+
             if is_ignored(&name) {
                 continue;
             }
-            
+
             let full_path = entry.path();
             let path_str = full_path.to_string_lossy().to_string();
             let is_dir = full_path.is_dir();
-            
+
             let children = if is_dir && depth < 2 {
                 // Only load children for first 2 levels initially
                 Some(read_dir_recursive(&full_path, root, depth + 1)?)
@@ -1619,7 +1590,7 @@ fn list_dir_tree(path: String) -> Result<DirTree, String> {
             } else {
                 None
             };
-            
+
             entries.push(DirEntry {
                 name,
                 path: path_str,
@@ -1627,27 +1598,26 @@ fn list_dir_tree(path: String) -> Result<DirTree, String> {
                 children,
             });
         }
-        
+
         // Sort: directories first, then by name
-        entries.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
-        
+
         Ok(entries)
     }
-    
+
     let entries = read_dir_recursive(root, root, 0)?;
-    
+
     // Get git status for all files
     let git_status = get_git_status(root);
-    
+
     Ok(DirTree {
         path: path.clone(),
-        name: root.file_name()
+        name: root
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("root")
             .to_string(),
@@ -1664,18 +1634,18 @@ struct GitStatusEntry {
 
 fn get_git_status(root: &Path) -> Vec<GitStatusEntry> {
     let mut status_entries = Vec::new();
-    
+
     // Check if it's a git repo
     let git_dir = root.join(".git");
     if !git_dir.exists() {
         return status_entries;
     }
-    
+
     // Run git status --porcelain
     let output = std::process::Command::new("git")
         .args(["-C", root.to_str().unwrap_or("."), "status", "--porcelain"])
         .output();
-    
+
     if let Ok(output) = output {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
@@ -1684,7 +1654,7 @@ fn get_git_status(root: &Path) -> Vec<GitStatusEntry> {
             }
             let status_code = &line[0..2];
             let file_path = line[3..].to_string();
-            
+
             let status = match status_code {
                 "M " | "M" => "staged",
                 " M" => "modified",
@@ -1693,14 +1663,14 @@ fn get_git_status(root: &Path) -> Vec<GitStatusEntry> {
                 "??" => "untracked",
                 _ => "modified",
             };
-            
+
             status_entries.push(GitStatusEntry {
                 path: file_path,
                 status: status.to_string(),
             });
         }
     }
-    
+
     status_entries
 }
 
@@ -1708,19 +1678,20 @@ fn get_git_status(root: &Path) -> Vec<GitStatusEntry> {
 fn write_file(work_dir: String, file_path: String, content: String) -> Result<(), String> {
     let root = Path::new(&work_dir);
     let full_path = root.join(&file_path);
-    
+
     // Security: ensure the path is within work_dir
-    let canonical = full_path.canonicalize()
+    let canonical = full_path
+        .canonicalize()
         .map_err(|e| format!("Failed to resolve path: {}", e))?;
-    let canonical_root = root.canonicalize()
+    let canonical_root = root
+        .canonicalize()
         .map_err(|e| format!("Failed to resolve work dir: {}", e))?;
-    
+
     if !canonical.starts_with(&canonical_root) {
         return Err("Path is outside working directory".to_string());
     }
-    
-    std::fs::write(&canonical, content)
-        .map_err(|e| format!("Failed to write file: {}", e))
+
+    std::fs::write(&canonical, content).map_err(|e| format!("Failed to write file: {}", e))
 }
 
 fn main() {

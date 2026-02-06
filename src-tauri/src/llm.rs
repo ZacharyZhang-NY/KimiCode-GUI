@@ -29,38 +29,41 @@ fn api_base_url() -> String {
 fn list_directory(work_dir: &str) -> String {
     let work_path = Path::new(work_dir);
     let mut entries: Vec<(String, bool, u64)> = Vec::new();
-    
+
     if let Ok(dir_entries) = std::fs::read_dir(work_path) {
         for entry in dir_entries.flatten() {
             let name = entry.file_name().to_string_lossy().to_string();
             // Skip hidden files and common build directories
-            if name.starts_with('.') || name == "target" || name == "node_modules" || name == "dist" || name == "build" {
+            if name.starts_with('.')
+                || name == "target"
+                || name == "node_modules"
+                || name == "dist"
+                || name == "build"
+            {
                 continue;
             }
-            
+
             let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
             let size = if let Ok(metadata) = entry.metadata() {
                 metadata.len()
             } else {
                 0
             };
-            
+
             entries.push((name, is_dir, size));
         }
     }
-    
+
     // Sort: directories first, then files
-    entries.sort_by(|a, b| {
-        match (a.1, b.1) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.0.cmp(&b.0),
-        }
+    entries.sort_by(|a, b| match (a.1, b.1) {
+        (true, false) => std::cmp::Ordering::Less,
+        (false, true) => std::cmp::Ordering::Greater,
+        _ => a.0.cmp(&b.0),
     });
-    
+
     let mut output = String::new();
     output.push_str(&format!("total {}\n", entries.len()));
-    
+
     for (name, is_dir, size) in entries {
         let size_str = if is_dir {
             "-".to_string()
@@ -71,16 +74,16 @@ fn list_directory(work_dir: &str) -> String {
         } else {
             format!("{:.1}M", size as f64 / (1024.0 * 1024.0))
         };
-        
+
         let type_char = if is_dir { "d" } else { "-" };
         let permissions = if is_dir { "rwxr-xr-x" } else { "rw-r--r--" };
-        
+
         output.push_str(&format!(
             "{}{}  1 user  group  {:>8} Jan  1 00:00 {}\n",
             type_char, permissions, size_str, name
         ));
     }
-    
+
     output
 }
 
@@ -88,34 +91,34 @@ fn list_directory(work_dir: &str) -> String {
 fn load_agents_md(work_dir: &str) -> Option<String> {
     let work_path = Path::new(work_dir);
     let paths = ["AGENTS.md", "agents.md"];
-    
+
     for filename in &paths {
         let path = work_path.join(filename);
         if let Ok(content) = std::fs::read_to_string(&path) {
             return Some(content);
         }
     }
-    
+
     None
 }
 
 fn generate_system_prompt(work_dir: &str, extra: Option<&str>) -> String {
     let mut prompt = String::new();
-    
+
     // Add directory listing
     let ls_output = list_directory(work_dir);
     prompt.push_str(&format!(
         "Current working directory: {}\n\nDirectory listing:\n{}\n",
         work_dir, ls_output
     ));
-    
+
     // Add AGENTS.md if exists
     if let Some(agents_md) = load_agents_md(work_dir) {
         prompt.push_str("\nAGENTS.md:\n");
         prompt.push_str(&agents_md);
         prompt.push('\n');
     }
-    
+
     if let Some(extra) = extra {
         let extra = extra.trim();
         if !extra.is_empty() {
@@ -165,7 +168,8 @@ pub async fn stream_chat(
             );
             "API key not configured"
         })?;
-        let base = auth_config.api_base
+        let base = auth_config
+            .api_base
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| "https://api.moonshot.cn/v1".to_string());
         (api_key, base)
@@ -189,7 +193,7 @@ pub async fn stream_chat(
             }
         }
     };
-    
+
     let client = reqwest::Client::new();
 
     // Build system prompt with directory context
@@ -290,7 +294,10 @@ pub async fn stream_chat(
             );
         }
 
-        let tool_calls = message.get("tool_calls").and_then(|v| v.as_array()).cloned();
+        let tool_calls = message
+            .get("tool_calls")
+            .and_then(|v| v.as_array())
+            .cloned();
         let content = message
             .get("content")
             .and_then(|v| v.as_str())
@@ -481,11 +488,19 @@ pub async fn stream_chat(
         if !content.is_empty() {
             // Extract token usage from response if available
             let usage = data.get("usage").cloned().unwrap_or(serde_json::json!({}));
-            let prompt_tokens = usage.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let completion_tokens = usage.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-            let total_tokens = usage.get("total_tokens").and_then(|v| v.as_u64())
+            let prompt_tokens = usage
+                .get("prompt_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let completion_tokens = usage
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let total_tokens = usage
+                .get("total_tokens")
+                .and_then(|v| v.as_u64())
                 .unwrap_or(prompt_tokens + completion_tokens);
-            
+
             emit_stream_event(
                 &window,
                 event_target,
@@ -520,10 +535,13 @@ pub async fn stream_chat(
 }
 
 #[tauri::command]
-pub async fn llm_fetch_models(auth_config: crate::AuthConfig) -> Result<Vec<serde_json::Value>, String> {
+pub async fn llm_fetch_models(
+    auth_config: crate::AuthConfig,
+) -> Result<Vec<serde_json::Value>, String> {
     let (access_token, api_base) = if auth_config.mode == "api_key" {
         let api_key = auth_config.api_key.ok_or("API key not configured")?;
-        let base = auth_config.api_base
+        let base = auth_config
+            .api_base
             .filter(|b| !b.is_empty())
             .unwrap_or_else(|| "https://api.moonshot.cn/v1".to_string());
         (api_key, base)
@@ -535,31 +553,31 @@ pub async fn llm_fetch_models(auth_config: crate::AuthConfig) -> Result<Vec<serd
             .unwrap_or_else(|_| "https://api.kimi.com/coding/v1".to_string());
         (token, base)
     };
-    
+
     let client = reqwest::Client::new();
     let mut req = client.get(format!("{}/models", api_base));
     for (key, value) in common_headers().into_iter() {
         req = req.header(key, value);
     }
     req = req.header("Authorization", format!("Bearer {}", access_token));
-    let response = req.send().await.map_err(|e| format!("Request failed: {}", e))?;
-    
+    let response = req
+        .send()
+        .await
+        .map_err(|e| format!("Request failed: {}", e))?;
+
     if !response.status().is_success() {
         let status = response.status();
         let text = response.text().await.unwrap_or_default();
         return Err(format!("API error {}: {}", status, text));
     }
-    
+
     let data: serde_json::Value = response
         .json()
         .await
         .map_err(|e| format!("Failed to parse response: {}", e))?;
-    
-    let models = data["data"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    
+
+    let models = data["data"].as_array().cloned().unwrap_or_default();
+
     Ok(models)
 }
 
@@ -688,11 +706,11 @@ async fn execute_tool(
     _window: &tauri::Window,
     _state: &tauri::State<'_, AppState>,
     _session_id: &str,
-    _tool_call_id: &str,
+    tool_call_id: &str,
     name: &str,
     args: &serde_json::Value,
     work_dir: &str,
-    _config_path: Option<&str>,
+    config_path: Option<&str>,
 ) -> tools::ToolOutput {
     match name {
         "ReadFile" => {
@@ -710,10 +728,7 @@ async fn execute_tool(
                 .get("line_offset")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(1) as usize;
-            let n_lines = args
-                .get("n_lines")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(1000) as usize;
+            let n_lines = args.get("n_lines").and_then(|v| v.as_u64()).unwrap_or(1000) as usize;
             tools::read_file(work_dir, path, line_offset, n_lines)
         }
         "Shell" => {
@@ -727,10 +742,7 @@ async fn execute_tool(
                     }
                 }
             };
-            let timeout = args
-                .get("timeout")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(60);
+            let timeout = args.get("timeout").and_then(|v| v.as_u64()).unwrap_or(60);
             tools::run_shell(work_dir, command, timeout).await
         }
         "WriteFile" => {
@@ -775,9 +787,9 @@ async fn execute_tool(
             let mut edits = Vec::new();
             if let Some(edit_value) = args.get("edit") {
                 if edit_value.is_array() {
-                    if let Ok(list) = serde_json::from_value::<Vec<tools::ReplaceEdit>>(
-                        edit_value.clone(),
-                    ) {
+                    if let Ok(list) =
+                        serde_json::from_value::<Vec<tools::ReplaceEdit>>(edit_value.clone())
+                    {
                         edits = list;
                     }
                 } else if let Ok(edit) =
@@ -797,16 +809,41 @@ async fn execute_tool(
 
             tools::str_replace_file(work_dir, path, edits)
         }
-        "SearchWeb" => tools::ToolOutput {
-            ok: false,
-            summary: "SearchWeb is disabled. Use Shell with agent-browser for internet requests.".to_string(),
-            output: String::new(),
-        },
-        "FetchURL" => tools::ToolOutput {
-            ok: false,
-            summary: "FetchURL is disabled. Use Shell with agent-browser for internet requests.".to_string(),
-            output: String::new(),
-        },
+        "SearchWeb" => {
+            let query = match args.get("query").and_then(|v| v.as_str()) {
+                Some(value) if !value.trim().is_empty() => value,
+                _ => {
+                    return tools::ToolOutput {
+                        ok: false,
+                        summary: "Missing query".to_string(),
+                        output: String::new(),
+                    }
+                }
+            };
+            let limit = args
+                .get("limit")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(5);
+            let include_content = args
+                .get("include_content")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            tools::search_web(config_path, tool_call_id, query, limit, include_content).await
+        }
+        "FetchURL" => {
+            let url = match args.get("url").and_then(|v| v.as_str()) {
+                Some(value) if !value.trim().is_empty() => value,
+                _ => {
+                    return tools::ToolOutput {
+                        ok: false,
+                        summary: "Missing url".to_string(),
+                        output: String::new(),
+                    }
+                }
+            };
+            tools::fetch_url(config_path, tool_call_id, url).await
+        }
         _ => tools::ToolOutput {
             ok: false,
             summary: format!("Unknown tool: {}", name),
