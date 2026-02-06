@@ -38,6 +38,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Install npm dependencies
+        run: npm ci
+
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -62,6 +65,21 @@ jobs:
 
       - name: Install Tauri CLI
         run: npm install -g @tauri-apps/cli
+
+      - name: Work around npm optional dependency bug (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          npm install --no-save "@tauri-apps/cli-linux-x64-gnu@2.9.6"
+
+      - name: Work around npm optional dependency bug (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          npm install --no-save "@tauri-apps/cli-win32-x64-msvc@2.9.6"
+
+      - name: Work around npm optional dependency bug (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          npm install --no-save "@tauri-apps/cli-darwin-arm64@2.9.6"
 
       - name: Install agent-browser package
         run: npm install --no-save "agent-browser@${{ env.AGENT_BROWSER_VERSION }}"
@@ -177,22 +195,33 @@ jobs:
         run: |
           set -euo pipefail
           APP_PATH="src-tauri/target/${{ matrix.target }}/release/bundle/macos/Kimi GUI.app"
+          EMBEDDED_AGENT_ROOT="$APP_PATH/Contents/Resources/agent-browser"
           DMG_PATH=$(ls "src-tauri/target/${{ matrix.target }}/release/bundle/dmg/"Kimi\ GUI_*.dmg 2>/dev/null | head -n 1 || true)
           if [ ! -d "$APP_PATH" ]; then
             echo "App not found at $APP_PATH"
+            exit 1
+          fi
+          if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
+            echo "APPLE_SIGNING_IDENTITY is required to sign the app"
             exit 1
           fi
           if ! grep -q "BEGIN PRIVATE KEY" "$GITHUB_WORKSPACE/api_key.p8"; then
             echo "api_key.p8 missing or invalid"
             exit 1
           fi
-          if ! codesign --verify --deep --strict --verbose=2 "$APP_PATH"; then
-            if [ -z "${APPLE_SIGNING_IDENTITY:-}" ]; then
-              echo "APPLE_SIGNING_IDENTITY is required to sign the app"
-              exit 1
+
+          # Sign embedded agent-browser executables with hardened runtime + secure timestamp.
+          for bin in \
+            "$EMBEDDED_AGENT_ROOT/macos-aarch64/agent-browser" \
+            "$EMBEDDED_AGENT_ROOT/macos-x86_64/agent-browser"
+          do
+            if [ -f "$bin" ]; then
+              codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$bin"
             fi
-            codesign --force --options runtime --deep --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
-          fi
+          done
+
+          # Re-sign app bundle after nested binaries are signed.
+          codesign --force --timestamp --options runtime --deep --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           APP_ZIP="Kimi GUI.app.zip"
           ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP"
