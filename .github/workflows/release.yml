@@ -158,7 +158,8 @@ jobs:
             # AppImage relies on linuxdeploy and is unstable in CI runners; build deb/rpm only.
             tauri build --target ${{ matrix.target }} --bundles deb,rpm
           elif [ "${{ runner.os }}" = "Windows" ]; then
-            tauri build --target ${{ matrix.target }} --bundles msi,nsis
+            # WiX/light intermittently fails in GitHub runners; build NSIS installer only for stable CI release.
+            tauri build --target ${{ matrix.target }} --bundles nsis
           else
             tauri build --target ${{ matrix.target }}
           fi

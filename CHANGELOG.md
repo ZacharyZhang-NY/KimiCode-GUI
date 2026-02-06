@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.6
+- Fixed Windows CI bundling failures by switching release build output to NSIS only (skip flaky WiX/MSI stage in GitHub runners).
+- Aligned default Tauri bundle targets with CI (`app`, `deb`, `rpm`, `nsis`).
+
 ## v0.4.5
 - Fixed Windows CI panic in `build.rs` caused by canonical path prefix mismatch.
 - Restricted CI bundle outputs to stable targets (`deb/rpm`, `msi/nsis`, `app`) to avoid flaky AppImage/DMG tooling failures.
