@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.4.7
+- Fixed Windows packaging step to tolerate missing MSI output when NSIS-only build is selected in CI.
+- Added explicit artifact-existence guard so CI fails only when no Windows installer is produced.
+
 ## v0.4.6
 - Fixed Windows CI bundling failures by switching release build output to NSIS only (skip flaky WiX/MSI stage in GitHub runners).
 - Aligned default Tauri bundle targets with CI (`app`, `deb`, `rpm`, `nsis`).

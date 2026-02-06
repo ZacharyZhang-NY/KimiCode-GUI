@@ -264,13 +264,24 @@ jobs:
         if: runner.os == 'Windows'
         run: |
           New-Item -ItemType Directory -Force -Path artifacts
-          $msi = Get-ChildItem -Path "src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi" | Select-Object -First 1
-          if ($msi) {
-            Copy-Item $msi.FullName "artifacts/KimiGUI-${{ github.ref_name }}-${{ matrix.target }}.msi"
+          $msiDir = "src-tauri/target/${{ matrix.target }}/release/bundle/msi"
+          if (Test-Path $msiDir) {
+            $msi = Get-ChildItem -Path "$msiDir/*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($msi) {
+              Copy-Item $msi.FullName "artifacts/KimiGUI-${{ github.ref_name }}-${{ matrix.target }}.msi"
+            }
           }
-          $exe = Get-ChildItem -Path "src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe" | Select-Object -First 1
-          if ($exe) {
-            Copy-Item $exe.FullName "artifacts/KimiGUI-${{ github.ref_name }}-${{ matrix.target }}-setup.exe"
+
+          $nsisDir = "src-tauri/target/${{ matrix.target }}/release/bundle/nsis"
+          if (Test-Path $nsisDir) {
+            $exe = Get-ChildItem -Path "$nsisDir/*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($exe) {
+              Copy-Item $exe.FullName "artifacts/KimiGUI-${{ github.ref_name }}-${{ matrix.target }}-setup.exe"
+            }
+          }
+
+          if (-not (Get-ChildItem artifacts -File -ErrorAction SilentlyContinue)) {
+            Write-Error "No Windows installer artifacts found under $msiDir or $nsisDir."
           }
 
       - name: Package Linux app
