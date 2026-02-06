@@ -2652,6 +2652,7 @@
     state.coworkTasks.unshift(task);
     state.currentCoworkTask = task;
     coworkToolSteps.clear();
+    coworkOutputSteps.clear();
     await saveCoworkTask(task);
     
     // Add to task list sidebar
@@ -2852,6 +2853,7 @@ Current task: ${task.prompt}`;
   }
 
   const coworkToolSteps = new Map();
+  const coworkOutputSteps = new Map();
 
   function ensureCoworkTaskSteps() {
     if (!state.currentCoworkTask) return [];
@@ -2890,14 +2892,30 @@ Current task: ${task.prompt}`;
       steps[stepIndex].status = status;
     }
   }
+
+  function ensureCoworkOutputStep(sessionId) {
+    const cached = sessionId ? coworkOutputSteps.get(sessionId) : null;
+    if (cached && elements.coworkTaskContent?.contains(cached)) {
+      return cached;
+    }
+
+    const stepEl = appendCoworkStep({
+      title: 'Assistant response',
+      description: '',
+    });
+    if (sessionId) {
+      coworkOutputSteps.set(sessionId, stepEl);
+    }
+    return stepEl;
+  }
   
   function handleCoworkEvent(event) {
     const { event: eventType, data } = event.payload;
     
     if (!state.currentCoworkTask) return;
+    const expectedSessionId = `cowork-${state.currentCoworkTask.id}`;
 
     if (data?.session_id) {
-      const expectedSessionId = `cowork-${state.currentCoworkTask.id}`;
       if (data.session_id !== expectedSessionId) return;
     }
     
@@ -2914,7 +2932,7 @@ Current task: ${task.prompt}`;
         break;
       }
       case 'chunk': {
-        const stepEl = ensureCoworkStep('Output', '');
+        const stepEl = ensureCoworkOutputStep(expectedSessionId);
         appendCoworkLog({ content: data?.content || '' }, stepEl);
         break;
       }
@@ -2922,6 +2940,7 @@ Current task: ${task.prompt}`;
         const toolCallId = data?.tool_call_id;
         if (!toolCallId) break;
         if (data?.state === 'start') {
+          coworkOutputSteps.delete(expectedSessionId);
           const stepEl = appendCoworkStep({
             title: data?.label || data?.name || 'Tool',
             description: '',
@@ -2951,6 +2970,12 @@ Current task: ${task.prompt}`;
         break;
       }
       case 'done':
+        {
+          const outputStep = coworkOutputSteps.get(expectedSessionId);
+          if (outputStep) {
+            setCoworkStepStatus(outputStep, 'completed');
+          }
+        }
         state.currentCoworkTask.status = 'completed';
         state.currentCoworkTask.updatedAt = Date.now();
         saveCoworkTask(state.currentCoworkTask);
