@@ -154,15 +154,42 @@ fn copy_agent_browser_runtime_closure(
         return Ok(());
     }
 
-    let relative = canonical_package_dir
-        .strip_prefix(workspace_root)
-        .map_err(|_| {
-            format!(
+    #[cfg(windows)]
+    fn strip_windows_verbatim_prefix(path: &Path) -> PathBuf {
+        let text = path.to_string_lossy();
+        if let Some(stripped) = text.strip_prefix(r"\\?\") {
+            PathBuf::from(stripped)
+        } else {
+            path.to_path_buf()
+        }
+    }
+
+    let relative = if let Ok(value) = canonical_package_dir.strip_prefix(workspace_root) {
+        PathBuf::from(value)
+    } else {
+        #[cfg(windows)]
+        {
+            let package_no_verbatim = strip_windows_verbatim_prefix(&canonical_package_dir);
+            let workspace_no_verbatim = strip_windows_verbatim_prefix(workspace_root);
+            if let Ok(value) = package_no_verbatim.strip_prefix(&workspace_no_verbatim) {
+                PathBuf::from(value)
+            } else {
+                return Err(format!(
+                    "Package dir {} is outside workspace root {}",
+                    canonical_package_dir.to_string_lossy(),
+                    workspace_root.to_string_lossy()
+                ));
+            }
+        }
+        #[cfg(not(windows))]
+        {
+            return Err(format!(
                 "Package dir {} is outside workspace root {}",
                 canonical_package_dir.to_string_lossy(),
                 workspace_root.to_string_lossy()
-            )
-        })?;
+            ));
+        }
+    };
     let destination_dir = runtime_root.join(relative);
     copy_dir_recursive(&canonical_package_dir, &destination_dir)?;
 
@@ -208,6 +235,7 @@ fn prepare_agent_browser_runtime(
         .parent()
         .map(PathBuf::from)
         .unwrap_or(manifest_dir.clone());
+    let workspace_root = fs::canonicalize(&workspace_root).unwrap_or(workspace_root);
 
     let source_package_dir = workspace_root.join("node_modules").join("agent-browser");
     if !source_package_dir.is_dir() {

@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.4.5
+- Fixed Windows CI panic in `build.rs` caused by canonical path prefix mismatch.
+- Restricted CI bundle outputs to stable targets (`deb/rpm`, `msi/nsis`, `app`) to avoid flaky AppImage/DMG tooling failures.
+- Hardened macOS release signing by signing all embedded Mach-O binaries before app re-sign and notarization.
+
 ## v0.4.2
 - Fixed release workflow to use global Tauri CLI with platform-native bindings.
 - Removed CI dependency churn that could break Tauri native binding resolution.

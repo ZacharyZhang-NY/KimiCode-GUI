@@ -154,6 +154,11 @@ jobs:
             # GitHub macOS runners are headless and DMG Finder-prettifying can fail in bundle_dmg.sh.
             # Build only the app bundle here and package/notarize the .app artifact.
             tauri build --target ${{ matrix.target }} --bundles app
+          elif [ "${{ runner.os }}" = "Linux" ]; then
+            # AppImage relies on linuxdeploy and is unstable in CI runners; build deb/rpm only.
+            tauri build --target ${{ matrix.target }} --bundles deb,rpm
+          elif [ "${{ runner.os }}" = "Windows" ]; then
+            tauri build --target ${{ matrix.target }} --bundles msi,nsis
           else
             tauri build --target ${{ matrix.target }}
           fi
@@ -215,18 +220,17 @@ jobs:
             exit 1
           fi
 
-          # Sign embedded agent-browser executables with hardened runtime + secure timestamp.
-          for bin in \
-            "$EMBEDDED_AGENT_ROOT/macos-aarch64/agent-browser" \
-            "$EMBEDDED_AGENT_ROOT/macos-x86_64/agent-browser"
-          do
-            if [ -f "$bin" ]; then
-              codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$bin"
-            fi
-          done
+          # Sign all embedded Mach-O binaries with hardened runtime + secure timestamp.
+          if [ -d "$EMBEDDED_AGENT_ROOT" ]; then
+            while IFS= read -r -d '' file; do
+              if file "$file" | grep -q "Mach-O"; then
+                codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$file"
+              fi
+            done < <(find "$EMBEDDED_AGENT_ROOT" -type f -print0)
+          fi
 
           # Re-sign app bundle after nested binaries are signed.
-          codesign --force --timestamp --options runtime --deep --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
+          codesign --force --timestamp --options runtime --sign "$APPLE_SIGNING_IDENTITY" "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
           APP_ZIP="Kimi GUI.app.zip"
           ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP"
