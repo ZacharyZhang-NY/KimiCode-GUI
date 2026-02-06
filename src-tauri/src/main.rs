@@ -208,6 +208,26 @@ fn shell_escape_path(path: &Path) -> String {
     }
 }
 
+fn shell_command_with_agent_browser_home(binary: &Path, home: &Path) -> String {
+    #[cfg(windows)]
+    {
+        let home_value = home.to_string_lossy().replace('\"', "\"\"");
+        return format!(
+            "set \"AGENT_BROWSER_HOME={home_value}\" && {}",
+            shell_escape_path(binary)
+        );
+    }
+
+    #[cfg(not(windows))]
+    {
+        format!(
+            "AGENT_BROWSER_HOME={} {}",
+            shell_escape_path(home),
+            shell_escape_path(binary)
+        )
+    }
+}
+
 fn embedded_agent_browser_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     let resource_dir = app.path().resource_dir().ok()?;
     let target_key = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
@@ -228,14 +248,49 @@ fn embedded_agent_browser_path(app: &tauri::AppHandle) -> Option<PathBuf> {
     candidates.into_iter().find(|path| path.is_file())
 }
 
+fn embedded_agent_browser_home(app: &tauri::AppHandle) -> Option<PathBuf> {
+    let resource_dir = app.path().resource_dir().ok()?;
+    let target_key = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+
+    let candidates = [
+        resource_dir
+            .join("agent-browser")
+            .join(&target_key)
+            .join("runtime")
+            .join("node_modules")
+            .join("agent-browser"),
+        resource_dir
+            .join("agent-browser")
+            .join("runtime")
+            .join("node_modules")
+            .join("agent-browser"),
+    ];
+
+    candidates.into_iter().find(|path| {
+        path.is_dir() && path.join("dist").join("daemon.js").is_file()
+    })
+}
+
 #[tauri::command]
 fn agent_browser_status(app: tauri::AppHandle) -> AgentBrowserStatus {
+    let mut bundled_detail: Option<String> = None;
+
     if let Some(path) = embedded_agent_browser_path(&app) {
-        return AgentBrowserStatus {
-            available: true,
-            command: Some(shell_escape_path(&path)),
-            detail: format!("Bundled agent-browser found at {}", path.to_string_lossy()),
-        };
+        if let Some(home) = embedded_agent_browser_home(&app) {
+            return AgentBrowserStatus {
+                available: true,
+                command: Some(shell_command_with_agent_browser_home(&path, &home)),
+                detail: format!(
+                    "Bundled agent-browser found at {} with runtime {}",
+                    path.to_string_lossy(),
+                    home.to_string_lossy()
+                ),
+            };
+        }
+        bundled_detail = Some(format!(
+            "Bundled agent-browser binary found at {}, but runtime is missing.",
+            path.to_string_lossy()
+        ));
     }
 
     if command_exists("agent-browser") {
@@ -257,7 +312,9 @@ fn agent_browser_status(app: tauri::AppHandle) -> AgentBrowserStatus {
     AgentBrowserStatus {
         available: false,
         command: None,
-        detail: "Neither agent-browser nor npx is available.".to_string(),
+        detail: bundled_detail.unwrap_or_else(|| {
+            "Neither bundled agent-browser runtime, agent-browser in PATH, nor npx fallback is available.".to_string()
+        }),
     }
 }
 
